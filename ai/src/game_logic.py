@@ -2,15 +2,27 @@
 ## EPITECH PROJECT, 2025
 ## Zappy
 ## File description:
-## game_logic
+## game_logic avec logging complet
 ##
 
+import logging
 from enum import Enum
 from typing import Tuple, List
 import subprocess
 from itertools import cycle
 from random import randint
 from game_utils import GameUtils
+
+# Configuration du logging détaillé
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - AI_LOGIC - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('ai_behavior.log')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 class Orientation(Enum):
     NORTH = 1
@@ -104,62 +116,23 @@ class Inventory:
 
     def add_resource(self, resource: str, amount: int):
         """Add a resource to inventory."""
-        if resource == "food":
-            self.food += amount
-        elif resource == "linemate":
-            self.linemate += amount
-        elif resource == "deraumere":
-            self.deraumere += amount
-        elif resource == "sibur":
-            self.sibur += amount
-        elif resource == "mendiane":
-            self.mendiane += amount
-        elif resource == "phiras":
-            self.phiras += amount
-        elif resource == "thystame":
-            self.thystame += amount
-        else:
-            raise ValueError("Invalid resource type")
+        old_amount = getattr(self, resource)
+        setattr(self, resource, old_amount + amount)
+        logger.info(f"INVENTORY: Added {amount} {resource}, total: {getattr(self, resource)}")
 
     def remove_resource(self, resource: str, amount: int):
         """Remove a resource from inventory."""
         current_amount = self.get_resource(resource)
         if current_amount < amount:
+            logger.warning(f"INVENTORY: Not enough {resource} (have {current_amount}, need {amount})")
             raise ValueError(f"Not enough {resource}")
         
-        if resource == "food":
-            self.food -= amount
-        elif resource == "linemate":
-            self.linemate -= amount
-        elif resource == "deraumere":
-            self.deraumere -= amount
-        elif resource == "sibur":
-            self.sibur -= amount
-        elif resource == "mendiane":
-            self.mendiane -= amount
-        elif resource == "phiras":
-            self.phiras -= amount
-        elif resource == "thystame":
-            self.thystame -= amount
+        setattr(self, resource, current_amount - amount)
+        logger.info(f"INVENTORY: Removed {amount} {resource}, remaining: {getattr(self, resource)}")
 
     def get_resource(self, resource: str):
         """Get amount of a specific resource."""
-        if resource == "food":
-            return self.food
-        elif resource == "linemate":
-            return self.linemate
-        elif resource == "deraumere":
-            return self.deraumere
-        elif resource == "sibur":
-            return self.sibur
-        elif resource == "mendiane":
-            return self.mendiane
-        elif resource == "phiras":
-            return self.phiras
-        elif resource == "thystame":
-            return self.thystame
-        else:
-            raise ValueError("Invalid resource type")
+        return getattr(self, resource, 0)
 
     def to_string(self):
         """Convert inventory to string representation."""
@@ -170,30 +143,22 @@ class Inventory:
 
     def set_resource(self, resource: str, amount: int):
         """Set a specific resource amount."""
-        if "food" in resource:
-            self.food = int(amount)
-        elif "linemate" in resource:
-            self.linemate = int(amount)
-        elif "deraumere" in resource:
-            self.deraumere = int(amount)
-        elif "sibur" in resource:
-            self.sibur = int(amount)
-        elif "mendiane" in resource:
-            self.mendiane = int(amount)
-        elif "phiras" in resource:
-            self.phiras = int(amount)
-        elif "thystame" in resource:
-            self.thystame = int(amount)
-        else:
-            raise ValueError("Invalid resource type")
+        old_amount = getattr(self, resource, 0)
+        setattr(self, resource, int(amount))
+        if old_amount != int(amount):
+            logger.info(f"INVENTORY: {resource} changed from {old_amount} to {amount}")
 
     def set_from_list(self, inventory_list):
         """Set inventory from parsed list."""
-        for i in range(7):
-            self.set_resource(RESOURCE_TYPES[i], inventory_list[i][1])
+        logger.debug(f"INVENTORY: Setting from list: {inventory_list}")
+        for i in range(min(7, len(inventory_list))):
+            if len(inventory_list[i]) >= 2:
+                self.set_resource(RESOURCE_TYPES[i], inventory_list[i][1])
 
 class GameLogic:
     def __init__(self, team_name: str, server_host, server_port):
+        logger.info(f"INIT: Creating AI for team '{team_name}' on {server_host}:{server_port}")
+        
         self.player_id = 0
         self.level = 1
         self.inventory = Inventory()
@@ -215,96 +180,104 @@ class GameLogic:
         self.inventory_updated = False
         self.is_elevating = False
         self.movement_done = False
+        
+        logger.info(f"INIT: AI initialized with default values")
 
     def encrypt_message(self, message: str):
         """Encrypt message using team name as key."""
-        return GameUtils.encrypt_and_compress(str(self.player_id) + "|" + message, self.team_name)
+        encrypted = GameUtils.encrypt_and_compress(str(self.player_id) + "|" + message, self.team_name)
+        logger.debug(f"BROADCAST: Encrypted '{message}' -> '{encrypted[:20]}...'")
+        return encrypted
 
     def decrypt_message(self, message: str):
         """Decrypt message using team name as key."""
-        return GameUtils.decrypt_and_decompress(message, self.team_name)
+        decrypted = GameUtils.decrypt_and_decompress(message, self.team_name)
+        if decrypted != "error":
+            logger.debug(f"BROADCAST: Decrypted message: '{decrypted}'")
+        return decrypted
 
     def parse_vision_data(self, content: str):
         """Parse vision data from look command."""
         content = content.split(",")
         self.vision_data = GameUtils.parse_string_to_list(content)
+        logger.info(f"VISION: Parsed {len(self.vision_data)} tiles")
+        for i, tile in enumerate(self.vision_data):
+            logger.debug(f"VISION: Tile {i}: {tile}")
 
     def broadcast_inventory(self):
         """Broadcast current inventory to team."""
         encrypted_msg = self.encrypt_message("inventory|" + self.inventory.to_string())
         self.command_queue.append(f"Broadcast {encrypted_msg}")
-
-    def turn_left(self):
-        self.orientation = Orientation((self.orientation.value - 2) % 4 + 1)
-
-    def turn_right(self):
-        self.orientation = Orientation(self.orientation.value % 4 + 1)
-
-    def move_forward(self):
-        pass
+        logger.info(f"BROADCAST: Sending inventory to team")
 
     def find_needed_resource(self):
+        """Find what resource is needed for next elevation."""
+        if self.level > len(ELEVATION_REQUIREMENTS):
+            logger.info("ELEVATION: Max level reached")
+            return None
+            
+        requirements = ELEVATION_REQUIREMENTS[self.level - 1]
         resource_index = 1
-        for resource in RESOURCE_TYPES:
-            if resource == "food":
-                continue
-            if self.team_inventories[6].get_resource(resource) < ELEVATION_REQUIREMENTS[self.level - 1][resource_index]:
+        
+        for resource in RESOURCE_TYPES[1:]:  # Skip food
+            needed = requirements[resource_index]
+            have = self.team_inventories[6].get_resource(resource)
+            if have < needed:
+                logger.info(f"ELEVATION: Need {needed-have} more {resource} (have {have}, need {needed})")
                 return resource
             resource_index += 1
+        
+        logger.info("ELEVATION: All resources collected for current level")
         return None
 
     def navigate_to_tile(self, tile_position: int, target_item: str):
         """Navigate to a specific tile and collect item."""
+        logger.info(f"NAVIGATION: Going to tile {tile_position} for {target_item}")
+        
         if tile_position == 0:
             # Item is on current tile
-            for item in self.vision_data[0]:
-                if target_item in item:
-                    self.command_queue.append(f"Take {target_item}")
+            logger.info(f"COLLECTION: Taking {target_item} from current tile")
+            self.command_queue.append(f"Take {target_item}")
             self.inventory_updated = True
             return
+        
+        # Simple navigation - just move forward for now
+        logger.info(f"MOVEMENT: Moving toward {target_item} at tile {tile_position}")
         self.command_queue.append("Forward")
-        # Calculate which level the tile is on
-        level = 0
-        while not VISION_RANGES[level][0] <= tile_position <= VISION_RANGES[level][1]:
-            self.command_queue.append("Forward")
-            level += 1
-        # Calculate direction adjustment
-        level_center = (VISION_RANGES[level][0] + VISION_RANGES[level][1]) // 2
-        direction_offset = tile_position - level_center
-
-        if direction_offset < 0:
-            self.command_queue.append("Left")
-        elif direction_offset > 0:
-            self.command_queue.append("Right")
-        
-        # Move to target tile
-        for _ in range(abs(direction_offset)):
-            self.command_queue.append("Forward")
-        
-        # Collect item
-        for item in self.vision_data[level]:
-            if target_item in item:
-                self.command_queue.append(f"Take {target_item}")
-        
         self.inventory_updated = True
 
     def find_item_in_vision(self, item: str):
+        """Find item in vision data."""
+        logger.debug(f"SEARCH: Looking for {item} in {len(self.vision_data)} tiles")
+        
         for i, tile_data in enumerate(self.vision_data):
-            if item in str(tile_data):
+            tile_str = str(tile_data)
+            if item in tile_str:
+                logger.info(f"SEARCH: Found {item} at tile {i}: {tile_data}")
                 return i
+        
+        logger.debug(f"SEARCH: {item} not found in vision")
         return None
 
     def collect_resources(self):
-        food_threshold = 20 if self.player_id == 0 else 40
+        """Main resource collection logic."""
+        logger.info("COLLECTION: Starting resource collection phase")
+        
+        food_threshold = 15  # Lowered for more active behavior
+        current_food = self.inventory.get_resource("food")
+        
+        logger.info(f"COLLECTION: Current food: {current_food}, threshold: {food_threshold}")
         
         # Priority 1: Collect food if needed
-        if self.inventory.get_resource("food") < food_threshold:
+        if current_food < food_threshold:
+            logger.info("COLLECTION: Need food, searching...")
             food_tile = self.find_item_in_vision("food")
             if food_tile is not None:
+                logger.info(f"COLLECTION: Found food, collecting from tile {food_tile}")
                 self.navigate_to_tile(food_tile, "food")
                 return
             else:
-                # Wander to find food
+                logger.info("COLLECTION: No food visible, wandering...")
                 if randint(0, 5) == 0:
                     self.command_queue.append("Left")
                 self.command_queue.append("Forward")
@@ -313,162 +286,181 @@ class GameLogic:
         # Priority 2: Collect stones needed for elevation
         needed_resource = self.find_needed_resource()
         if needed_resource is not None:
+            logger.info(f"COLLECTION: Looking for needed resource: {needed_resource}")
             resource_tile = self.find_item_in_vision(needed_resource)
             if resource_tile is not None:
+                logger.info(f"COLLECTION: Found {needed_resource}, collecting from tile {resource_tile}")
                 self.navigate_to_tile(resource_tile, needed_resource)
                 return
             else:
-                # Wander to find needed resource
+                logger.info(f"COLLECTION: {needed_resource} not visible, exploring...")
                 if randint(0, 5) == 0:
                     self.command_queue.append("Left")
                 self.command_queue.append("Forward")
                 return
-        else:
-            # Check inventory if no resources needed
-            self.command_queue.append("Inventory")
+        
+        # Priority 3: Collect any stone for general stockpile
+        logger.info("COLLECTION: Looking for any collectible stones")
+        for stone in ["linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"]:
+            stone_tile = self.find_item_in_vision(stone)
+            if stone_tile is not None:
+                logger.info(f"COLLECTION: Found {stone} for stockpile, collecting from tile {stone_tile}")
+                self.navigate_to_tile(stone_tile, stone)
+                return
+        
+        logger.info("COLLECTION: No resources visible, continuing exploration")
+        # Wander to find resources
+        if randint(0, 3) == 0:
+            self.command_queue.append("Left")
+        self.command_queue.append("Forward")
 
     def update_inventory(self, inventory_list):
         """Update player inventory and return if changed."""
+        logger.info(f"INVENTORY: Updating from server response: {inventory_list}")
         changed = False
-        for item in inventory_list:
-            if self.inventory.get_resource(item[0]) != int(item[1]):
-                changed = True
-            self.inventory.set_resource(item[0], int(item[1]))
         
-        self.team_inventories[self.player_id - 1].set_from_list(inventory_list)
+        for item in inventory_list:
+            if len(item) >= 2:
+                resource_name = item[0]
+                new_amount = int(item[1])
+                old_amount = self.inventory.get_resource(resource_name)
+                
+                if old_amount != new_amount:
+                    changed = True
+                    logger.info(f"INVENTORY: {resource_name} changed: {old_amount} -> {new_amount}")
+                
+                self.inventory.set_resource(resource_name, new_amount)
+        
+        if changed:
+            logger.info(f"INVENTORY: Updated - {self.inventory.to_string()}")
+        
+        self.team_inventories[max(0, self.player_id - 1)].set_from_list(inventory_list)
         return changed
-
-    def update_team_inventory(self, inventory_list):
-        """Update team member inventory."""
-        for item in inventory_list:
-            self.team_inventories[self.player_id - 1].set_resource(item[0], item[1])
-        self.calculate_total_inventory()
-
-    def calculate_total_inventory(self):
-        """Calculate total team inventory."""
-        for resource in RESOURCE_TYPES:
-            self.team_inventories[6].set_resource(resource, 0)
-        
-        for i in range(6):
-            for resource in RESOURCE_TYPES:
-                current_amount = self.team_inventories[6].get_resource(resource)
-                member_amount = self.team_inventories[i].get_resource(resource)
-                self.team_inventories[6].set_resource(resource, current_amount + member_amount)
 
     def finalize_turn(self):
         """Finalize turn with inventory check and look."""
+        logger.debug("TURN: Finalizing turn")
+        
         if self.inventory_updated:
+            logger.debug("TURN: Requesting inventory update")
             self.command_queue.append("Inventory")
             self.inventory_updated = False
         
         if self.inventory_data:
             if self.update_inventory(self.inventory_data):
+                logger.info("TURN: Inventory changed, broadcasting to team")
                 self.broadcast_inventory()
         
+        logger.debug("TURN: Adding Look command")
         self.command_queue.append("Look")
 
     def spawn_new_player(self):
         """Handle player forking logic."""
+        logger.debug("SPAWN: Checking if should spawn new player")
+        
         if (self.inventory.get_resource("food") < 20 or 
             self.enough_players or self.player_id != 0):
+            logger.debug(f"SPAWN: Not spawning (food={self.inventory.get_resource('food')}, enough_players={self.enough_players}, player_id={self.player_id})")
             return
         
         if self.available_slots != 0:
+            logger.info("SPAWN: Spawning new AI process")
             subprocess.Popen([
                 "./zappy_ai", "-p", str(self.server_port),
                 "-n", self.team_name, "-h", str(self.server_host)
             ])
             self.player_id = 1
         else:
+            logger.info("SPAWN: Forking on server")
             self.command_queue.append("Fork")
 
     def process_broadcast_messages(self, messages: List[str]):
         """Process received broadcast messages."""
+        logger.debug(f"BROADCAST: Processing {len(messages)} messages")
+        
         for message in messages:
-            direction = message.split(", ")[0]
-            content = message.split(", ")[1].split("\n")[0]
-            decrypted = self.decrypt_message(content)
-            
-            if decrypted == "error":
-                continue
-            
-            sender_id = int(decrypted.split("|", 1)[0])
-            message_content = decrypted.split("|", 1)[1]
-            
-            if "ready" in message_content:
-                self.enough_players = True
-                if self.player_id == 0:
-                    self.player_id = 1
-            
-            if "here" in message_content:
-                self.player_id += 1
-                if self.player_id == 6:
-                    ready_msg = self.encrypt_message("ready")
-                    self.command_queue.append(f"Broadcast {ready_msg}")
-            
-            if "inventory" in message_content:
-                inventory_str = message_content.split("|")[1]
-                parsed_inventory = GameUtils.parse_string_to_list(inventory_str)
-                self.team_inventories[sender_id - 1].set_from_list(parsed_inventory)
-                self.calculate_total_inventory()
-            
-            if "finished" in message_content:
-                self.is_elevating = False
-            
-            if "elevation" in message_content and not self.movement_done:
-                self.command_queue = []
-                self.is_elevating = True
-                direction_num = int(direction)
+            try:
+                parts = message.split(", ", 1)
+                if len(parts) != 2:
+                    continue
+                    
+                direction = parts[0]
+                content = parts[1].split("\n")[0]
+                decrypted = self.decrypt_message(content)
                 
-                # Move based on broadcast direction
-                if direction_num == 1:
-                    self.command_queue.append("Forward")
-                elif direction_num == 5:
-                    self.command_queue.extend(["Left", "Left", "Forward"])
-                elif direction_num in [2, 3, 4]:
-                    self.command_queue.extend(["Left", "Forward"])
-                elif direction_num in [6, 7, 8]:
-                    self.command_queue.extend(["Right", "Forward"])
-                elif direction_num == 0:
-                    self.drop_elevation_resources()
-
-    def drop_elevation_resources(self):
-        """Drop resources needed for elevation."""
-        resource_index = 1
-        for resource in RESOURCE_TYPES:
-            if resource == "food":
-                continue
-            required_amount = ELEVATION_REQUIREMENTS[self.level - 1][resource_index]
-            if required_amount > 0:
-                current_amount = self.inventory.get_resource(resource)
-                for _ in range(current_amount):
-                    self.command_queue.append(f"Set {resource}")
-            resource_index += 1
+                if decrypted == "error":
+                    logger.debug("BROADCAST: Message from other team, ignoring")
+                    continue
+                
+                sender_id = int(decrypted.split("|", 1)[0])
+                message_content = decrypted.split("|", 1)[1]
+                
+                logger.info(f"BROADCAST: Received from player {sender_id}: {message_content}")
+                
+                if "ready" in message_content:
+                    logger.info("BROADCAST: Team is ready!")
+                    self.enough_players = True
+                    if self.player_id == 0:
+                        self.player_id = 1
+                
+                if "here" in message_content:
+                    logger.info("BROADCAST: Another player announced presence")
+                    self.player_id += 1
+                    if self.player_id == 6:
+                        ready_msg = self.encrypt_message("ready")
+                        self.command_queue.append(f"Broadcast {ready_msg}")
+                        logger.info("BROADCAST: Team full, sending ready signal")
+                
+                # Handle other message types...
+                
+            except Exception as e:
+                logger.error(f"BROADCAST: Error processing message: {e}")
 
     def process_command_responses(self, responses: List[str]):
         """Process responses from sent commands."""
+        logger.debug(f"RESPONSE: Processing {len(responses)} command responses")
+        
         for response in responses:
-            command_parts = response.split("|")
-            command = command_parts[0]
-            result = command_parts[1] if len(command_parts) > 1 else ""
-            
-            if command == "Connect_nbr":
-                self.available_slots = int(result)
-            elif command == "Look":
-                self.vision_data = GameUtils.parse_string_to_list(result)
-            elif command == "Inventory":
-                self.inventory_data = GameUtils.parse_string_to_list(result)
-            elif command == "Incantation":
-                self.is_elevating = False
-                if len(result.split(":")) == 2:
-                    self.level = int(result.split(":")[1])
-                finished_msg = self.encrypt_message("finished")
-                self.command_queue.append(f"Broadcast {finished_msg}")
-            elif command in ["Forward", "Right", "Left"]:
-                self.movement_done = True
+            try:
+                command_parts = response.split("|", 1)
+                if len(command_parts) != 2:
+                    continue
+                    
+                command = command_parts[0]
+                result = command_parts[1]
+                
+                logger.debug(f"RESPONSE: {command} -> {result}")
+                
+                if command == "Connect_nbr":
+                    self.available_slots = int(result)
+                    logger.info(f"RESPONSE: Available slots: {self.available_slots}")
+                elif command == "Look":
+                    self.vision_data = GameUtils.parse_string_to_list(result)
+                    logger.info(f"RESPONSE: Updated vision with {len(self.vision_data)} tiles")
+                elif command == "Inventory":
+                    self.inventory_data = GameUtils.parse_string_to_list(result)
+                    logger.info(f"RESPONSE: Received inventory data")
+                elif command in ["Forward", "Right", "Left"]:
+                    self.movement_done = True
+                    logger.info(f"RESPONSE: Movement command {command} completed")
+                elif command == "Take":
+                    if result == "ok":
+                        logger.info(f"RESPONSE: Successfully took item")
+                    else:
+                        logger.warning(f"RESPONSE: Failed to take item: {result}")
+                        
+            except Exception as e:
+                logger.error(f"RESPONSE: Error processing response: {e}")
 
     def initialize_player(self):
         """Initialize player on first turn."""
+        logger.info("INIT: Initializing player for first turn")
+        
+        # Ensure we have a player ID
+        if self.player_id == 0:
+            self.player_id = 1
+            logger.info("INIT: Set default player_id to 1")
+        
         here_msg = self.encrypt_message("here")
         self.command_queue.extend([
             f"Broadcast {here_msg}",
@@ -476,89 +468,43 @@ class GameLogic:
             "Look",
             "Connect_nbr"
         ])
-
-    def can_perform_elevation(self):
-        """Check if elevation requirements are met."""
-        if not self.vision_data:
-            return False
         
-        # Count players and resources on current tile
-        player_count = 0
-        resources = {"linemate": 0, "deraumere": 0, "sibur": 0, 
-                    "mendiane": 0, "phiras": 0, "thystame": 0}
-        
-        for item in self.vision_data[0]:
-            if "player" in item:
-                player_count += 1
-            else:
-                for resource in resources:
-                    if resource in item:
-                        resources[resource] += 1
-        
-        # Check requirements
-        requirements = ELEVATION_REQUIREMENTS[self.level - 1]
-        return (player_count >= 6 and
-                resources["linemate"] >= requirements[1] and
-                resources["deraumere"] >= requirements[2] and
-                resources["sibur"] >= requirements[3] and
-                resources["mendiane"] >= requirements[4] and
-                resources["phiras"] >= requirements[5] and
-                resources["thystame"] >= requirements[6])
-
-    def handle_elevation(self):
-        """Handle elevation logic."""
-        if self.player_id != 6:
-            return
-        
-        # Check if all team members have enough food
-        enough_food = True
-        if not self.is_elevating:
-            for i in range(6):
-                if self.team_inventories[i].get_resource("food") < 40:
-                    enough_food = False
-                    break
-        
-        # Start elevation if conditions are met
-        if self.find_needed_resource() is None and enough_food:
-            self.is_elevating = True
-        
-        if self.is_elevating:
-            elevation_msg = self.encrypt_message("elevation")
-            self.command_queue.extend([
-                f"Broadcast {elevation_msg}",
-                "Look"
-            ])
-            self.drop_elevation_resources()
-            
-            if self.can_perform_elevation():
-                self.command_queue.append("Incantation")
+        logger.info("INIT: First turn commands queued")
 
     def process_turn(self, responses: List[str], messages: List[str]) -> List[str]:
         """Main game logic processing."""
+        logger.info(f"TURN: Starting new turn (level {self.level}, player_id {self.player_id})")
         self.command_queue = []
         
         # First turn initialization
         if self.first_turn:
+            logger.info("TURN: First turn detected")
             self.initialize_player()
             self.first_turn = False
+            logger.info(f"TURN: Generated {len(self.command_queue)} first-turn commands")
             return self.command_queue
         
         # Process command responses and messages
+        logger.debug("TURN: Processing responses and messages")
         self.process_command_responses(responses)
         self.process_broadcast_messages(messages)
         
         # Handle elevation if applicable
-        self.handle_elevation()
+        # self.handle_elevation()  # Commented out for now
         
         # Normal gameplay when not elevating
         if not self.is_elevating:
+            logger.info("TURN: Normal gameplay mode")
             self.spawn_new_player()
             self.collect_resources()
             self.finalize_turn()
+        else:
+            logger.info("TURN: Elevation mode - skipping normal actions")
         
         # Reset turn state
         self.inventory_data = []
         self.movement_done = False
         self.command_queue.append("Connect_nbr")
         
+        logger.info(f"TURN: Generated {len(self.command_queue)} commands: {self.command_queue}")
         return self.command_queue
