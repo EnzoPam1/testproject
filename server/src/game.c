@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/socket.h>
 
 static const float RESOURCE_DENSITY[] = {
     0.5,   // food
