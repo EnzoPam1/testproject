@@ -144,10 +144,8 @@ static player_t *find_player_by_client(server_t *srv, client_t *cl) {
 
 static void cmd_forward(server_t *srv, client_t *cl, player_t *player) {
     (void)srv; (void)cl; // Supprimer warnings
-    // Pas de vérification pending_action - on peut avoir plusieurs actions en file
     start_action(player, "forward_end", 7);
     log_info("Forward scheduled for player %d (7/f seconds)", player->id);
-    // PAS de réponse immédiate - elle viendra quand l'action sera exécutée
 }
 
 static void cmd_right(server_t *srv, client_t *cl, player_t *player) {
@@ -162,29 +160,23 @@ static void cmd_left(server_t *srv, client_t *cl, player_t *player) {
     log_info("Left scheduled for player %d (7/f seconds)", player->id);
 }
 
-// COMMANDES INSTANTANÉES
+// COMMANDES "INSTANTANÉES" - Maintenant passent par la file d'actions avec délai 0
 static void cmd_look(server_t *srv, client_t *cl, player_t *player) {
-    char response[4096];
-    generate_look_response(srv, player, response);
-    send_response(cl->socket_fd, response);
-    log_info("Look executed instantly for player %d", player->id);
+    (void)srv; (void)cl; // Supprimer warnings
+    start_action(player, "look_end", 0);  // 0 tick = instantané mais dans l'ordre
+    log_info("Look scheduled for player %d (instant but queued)", player->id);
 }
 
 static void cmd_inventory(server_t *srv, client_t *cl, player_t *player) {
-    (void)srv; // Supprimer warning
-    char response[512];
-    snprintf(response, sizeof(response),
-        "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]\n",
-        player->inventory[0], player->inventory[1], player->inventory[2],
-        player->inventory[3], player->inventory[4], player->inventory[5],
-        player->inventory[6]);
-    send_response(cl->socket_fd, response);
-    log_info("Inventory executed instantly for player %d", player->id);
+    (void)srv; (void)cl; // Supprimer warnings
+    start_action(player, "inventory_end", 0);  // 0 tick = instantané mais dans l'ordre
+    log_info("Inventory scheduled for player %d (instant but queued)", player->id);
 }
 
 static void cmd_connect_nbr(server_t *srv, client_t *cl, player_t *player) {
-    sendf(cl->socket_fd, "%d\n", srv->slots_remaining[player->team_idx]);
-    log_info("Connect_nbr executed instantly for player %d: %d slots", player->id, srv->slots_remaining[player->team_idx]);
+    (void)srv; (void)cl; // Supprimer warnings
+    start_action(player, "connect_nbr_end", 0);  // 0 tick = instantané mais dans l'ordre
+    log_info("Connect_nbr scheduled for player %d (instant but queued)", player->id);
 }
 
 // COMMANDES ASYNCHRONES

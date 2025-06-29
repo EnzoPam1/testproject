@@ -46,7 +46,7 @@ static void sendf(int fd, const char *fmt, ...)
     send(fd, buf, strlen(buf), 0);
 }
 
-static void __attribute__((unused)) generate_look_response(server_t *srv, player_t *player, char *response)
+static void generate_look_response(server_t *srv, player_t *player, char *response)
 {
     char tile_content[512];
     int vision_size = player->level + 1;
@@ -146,6 +146,36 @@ static int calculate_sound_direction(server_t *srv, player_t *sender,
     return direction_map[receiver->orientation - 1][dir_offset];
 }
 
+// Nouveaux handlers pour les commandes "instantanées"
+static void action_look_end(server_t *srv, client_t *cl, player_t *player)
+{
+    char response[4096];
+    generate_look_response(srv, player, response);
+    send_response(cl->socket_fd, response);
+    log_info("Look completed for player %d", player->id);
+}
+
+static void action_inventory_end(server_t *srv, client_t *cl, player_t *player)
+{
+    (void)srv; // Supprimer warning
+    char response[512];
+    snprintf(response, sizeof(response),
+        "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]\n",
+        player->inventory[0], player->inventory[1], player->inventory[2],
+        player->inventory[3], player->inventory[4], player->inventory[5],
+        player->inventory[6]);
+    send_response(cl->socket_fd, response);
+    log_info("Inventory completed for player %d", player->id);
+}
+
+static void action_connect_nbr_end(server_t *srv, client_t *cl, player_t *player)
+{
+    sendf(cl->socket_fd, "%d\n", srv->slots_remaining[player->team_idx]);
+    log_info("Connect_nbr completed for player %d: %d slots", 
+        player->id, srv->slots_remaining[player->team_idx]);
+}
+
+// Handlers existants pour les commandes avec délai
 static void action_forward_end(server_t *srv, client_t *cl, player_t *player)
 {
     player_move_forward(player, srv);
@@ -391,12 +421,19 @@ void execute_pending_actions(server_t *srv)
         arg[0] = '\0';
         sscanf(action->action, "%s %[^\n]", cmd, arg);
 
+        // Handlers pour toutes les actions
         if (strcmp(cmd, "forward_end") == 0)
             action_forward_end(srv, cl, player);
         else if (strcmp(cmd, "right_end") == 0)
             action_right_end(srv, cl, player);
         else if (strcmp(cmd, "left_end") == 0)
             action_left_end(srv, cl, player);
+        else if (strcmp(cmd, "look_end") == 0)
+            action_look_end(srv, cl, player);
+        else if (strcmp(cmd, "inventory_end") == 0)
+            action_inventory_end(srv, cl, player);
+        else if (strcmp(cmd, "connect_nbr_end") == 0)
+            action_connect_nbr_end(srv, cl, player);
         else if (strcmp(cmd, "take_end") == 0)
             action_take_end(srv, cl, player, atoi(arg));
         else if (strcmp(cmd, "set_end") == 0)
