@@ -1,10 +1,3 @@
-/*
-** EPITECH PROJECT, 2025
-** zappy_server
-** File description:
-** Buffer header - CORRECTED VERSION
-*/
-
 #ifndef ZAPPY_BUFFER_H
 #define ZAPPY_BUFFER_H
 
@@ -19,24 +12,19 @@ typedef struct s_buffer {
 } buffer_t;
 
 /**
- * @brief Initialize the buffer.
+ * @brief Initialise le buffer.
  */
 void buffer_init(buffer_t *buf);
 
 /**
- * @brief Add bytes to the buffer.
+ * @brief Ajoute des octets dans le buffer.
  */
 size_t buffer_write(buffer_t *buf, const char *data, size_t len);
 
 /**
- * @brief Read a complete line (until '\n' or '\r') if available.
- * Returns the number of bytes read, 0 if no complete line available.
+ * @brief Lit une ligne complète (jusqu’à ‘\n’) si disponible.
+ * Retourne le nombre d’octets lus, 0 si aucune ligne complète.
  */
 size_t buffer_readline(buffer_t *buf, char *out, size_t maxlen);
-
-/**
- * @brief Get number of bytes available in buffer.
- */
-size_t buffer_available(buffer_t *buf);
 
 #endif // ZAPPY_BUFFER_H

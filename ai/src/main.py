@@ -1,3 +1,10 @@
+##
+## EPITECH PROJECT, 2025
+## Zappy
+## File description:
+## main
+##
+
 #!/usr/bin/env python3
 
 import sys

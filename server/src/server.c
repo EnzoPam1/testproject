@@ -31,8 +31,7 @@ static void usage(const char *prog)
 int server_init(server_t *srv, int argc, char **argv)
 {
     int opt;
-    char **team_names_tmp = NULL;
-    int team_count = 0;
+    char *names = NULL;
 
     srv->port = 0;
     srv->width = 0;
@@ -43,47 +42,44 @@ int server_init(server_t *srv, int argc, char **argv)
     srv->team_names = NULL;
     srv->slots_remaining = NULL;
 
-    // Parser les arguments un par un pour gérer plusieurs noms d'équipes
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
-            srv->port = (uint16_t)atoi(argv[++i]);
-        } else if (strcmp(argv[i], "-x") == 0 && i + 1 < argc) {
-            srv->width = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "-y") == 0 && i + 1 < argc) {
-            srv->height = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "-f") == 0 && i + 1 < argc) {
-            srv->freq = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
-            srv->max_per_team = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "-n") == 0) {
-            // Collecter tous les noms d'équipes qui suivent -n
-            while (i + 1 < argc && argv[i + 1][0] != '-') {
-                i++;
-                team_names_tmp = realloc(team_names_tmp, sizeof(char*) * (team_count + 1));
-                if (!team_names_tmp)
-                    die("malloc team names");
-                team_names_tmp[team_count] = strdup(argv[i]);
-                team_count++;
-            }
+    while ((opt = getopt(argc, argv, "p:x:y:f:n:c:")) != -1) {
+        switch (opt) {
+        case 'p': srv->port = (uint16_t)atoi(optarg); break;
+        case 'x': srv->width = atoi(optarg); break;
+        case 'y': srv->height = atoi(optarg); break;
+        case 'f': srv->freq = atoi(optarg); break;
+        case 'n': names = strdup(optarg); break;
+        case 'c': srv->max_per_team = atoi(optarg); break;
+        default:
+            usage(argv[0]);
+            return -1;
         }
     }
 
     if (!srv->port || !srv->width || !srv->height || !srv->freq
-     || team_count == 0 || srv->max_per_team <= 0) {
+     || !names || srv->max_per_team <= 0) {
         usage(argv[0]);
         return -1;
     }
 
-    srv->teams_count = team_count;
-    srv->team_names = team_names_tmp;
-    srv->slots_remaining = malloc(sizeof(*srv->slots_remaining) * srv->teams_count);
-    if (!srv->slots_remaining)
-        die("malloc slots");
+    srv->teams_count = 1;
+    for (char *p = names; *p; ++p)
+        if (*p == ',')
+            srv->teams_count++;
 
-    for (int i = 0; i < srv->teams_count; i++) {
-        srv->slots_remaining[i] = srv->max_per_team;
-        printf("Team created: '%s' with %d slots\n", srv->team_names[i], srv->max_per_team);
+    srv->team_names = malloc(sizeof(*srv->team_names) * srv->teams_count);
+    srv->slots_remaining = malloc(sizeof(*srv->slots_remaining) *
+        srv->teams_count);
+    if (!srv->team_names || !srv->slots_remaining)
+        die("malloc teams");
+
+    int idx = 0;
+    for (char *tok = strtok(names, ","); tok; tok = strtok(NULL, ",")) {
+        srv->team_names[idx] = strdup(tok);
+        srv->slots_remaining[idx] = srv->max_per_team;
+        idx++;
     }
+    free(names);
 
     float density[] = {1, 1, 1, 1, 1, 1};
     srv->map = game_map_init(srv->width, srv->height, density);

@@ -178,8 +178,7 @@ void Game::RenderPlaying() {
     ClearBackground(BLACK);
 
     m_camera->BeginMode3D();
-    {   
-        // Draw the sky-sphere centered on the 
+    {
         Camera3D cam = m_camera->GetCamera();
         rlDisableDepthTest();
         DrawModelEx(
@@ -187,7 +186,7 @@ void Game::RenderPlaying() {
             cam.position,
             (Vector3){0,1,0},
             0.0f,
-            _skyScale, // échelle (X négatif pour faces intérieures)
+            _skyScale,
             WHITE                           // teinte
         );
         rlEnableDepthTest();
@@ -198,8 +197,7 @@ void Game::RenderPlaying() {
     m_ui->Draw(m_world.get(), m_selectedPlayerId);
     DrawFPS(10, 10);
 
-    // Show help text
-    DrawText("F1: Back to Login | B: Toggle Bounding Boxes | ESC: Exit",
+    DrawText("F1: Back to Login | B: Toggle HitBoxes | ESC: Exit",
              10, m_screenHeight - 30, 16, LIGHTGRAY);
 
     EndDrawing();
@@ -274,7 +272,6 @@ bool Game::ConnectToServer(const std::string& host, int port) {
                     height * tileSize / 2.0f
                 });
 
-                // === Ajustement dynamique de la sky-sphère ===
                 {
                     float mapW  = m_mapWidth  * tileSize;
                     float mapH  = m_mapHeight * tileSize;
@@ -284,7 +281,6 @@ bool Game::ConnectToServer(const std::string& host, int port) {
                     radius *= 3.0f;
                     _skyScale = { -radius, radius, radius };
                 }
-                // ===============================================
 
                 break;
             }
@@ -292,7 +288,6 @@ bool Game::ConnectToServer(const std::string& host, int port) {
         timeout++;
     }
 
-    // Fallback si pas de réponse msz
     if (m_mapWidth == 0 || m_mapHeight == 0) {
         m_mapWidth  = 10;
         m_mapHeight = 10;
@@ -306,7 +301,6 @@ bool Game::ConnectToServer(const std::string& host, int port) {
             m_mapHeight * tileSize / 2.0f
         });
 
-        // Même ajustement pour la sky-sphère
         {
             float mapW  = m_mapWidth  * tileSize;
             float mapH  = m_mapHeight * tileSize;

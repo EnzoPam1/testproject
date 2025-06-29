@@ -2,7 +2,7 @@
 ** EPITECH PROJECT, 2025
 ** zappy_server
 ** File description:
-** Execute pending actions - CORRECTED VERSION
+** Execute pending actions
 */
 
 #include <stdio.h>
@@ -20,42 +20,19 @@
 #include "game.h"
 #include <stdarg.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static void send_response(int fd, const char *msg)
 {
-    char formatted[1024];
-    int len;
-    
-    // Ensure response has proper line termination
-    if (msg[strlen(msg) - 1] != '\n') {
-        len = snprintf(formatted, sizeof(formatted), "%s\n", msg);
-    } else {
-        len = snprintf(formatted, sizeof(formatted), "%s", msg);
-    }
-    
-    if (len > 0 && len < sizeof(formatted)) {
-        send(fd, formatted, len, 0);
-        log_info("ACTION_RESPONSE[%d]: %.*s", fd, len - 1, formatted); // Log without \n
-    }
+    send(fd, msg, strlen(msg), 0);
 }
 
 void broadcast_to_gui(server_t *srv, const char *msg)
 {
     for (int i = 0; i < srv->client_count; i++) {
         if (srv->clients[i]->is_gui) {
-            // Ensure message has proper termination
-            char formatted[1024];
-            int len;
-            
-            if (msg[strlen(msg) - 1] != '\n') {
-                len = snprintf(formatted, sizeof(formatted), "%s\n", msg);
-            } else {
-                len = snprintf(formatted, sizeof(formatted), "%s", msg);
-            }
-            
-            if (len > 0 && len < sizeof(formatted)) {
-                send(srv->clients[i]->socket_fd, formatted, len, 0);
-            }
+            send(srv->clients[i]->socket_fd, msg, strlen(msg), 0);
         }
     }
 }
@@ -64,23 +41,11 @@ static void sendf(int fd, const char *fmt, ...)
 {
     char buf[1024];
     va_list ap;
-    int len;
 
     va_start(ap, fmt);
-    len = vsnprintf(buf, sizeof(buf), fmt, ap);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    
-    // Ensure proper line termination
-    if (len > 0 && len < sizeof(buf) - 1 && buf[len - 1] != '\n') {
-        buf[len] = '\n';
-        buf[len + 1] = '\0';
-        len++;
-    }
-    
-    if (len > 0) {
-        send(fd, buf, len, 0);
-        log_info("ACTION_SENDF[%d]: %.*s", fd, len - 1, buf); // Log without \n
-    }
+    send(fd, buf, strlen(buf), 0);
 }
 
 static void generate_look_response(server_t *srv, player_t *player, char *response)
@@ -89,14 +54,14 @@ static void generate_look_response(server_t *srv, player_t *player, char *respon
     int vision_size = player->level + 1;
     int first = 1;
 
-    strcpy(response, "[");
+    strcpy(response, "[ ");
     for (int row = 0; row < vision_size; row++) {
         int tiles_in_row = 2 * row + 1;
         int start_offset = -row;
 
         for (int col = 0; col < tiles_in_row; col++) {
             if (!first)
-                strcat(response, ",");
+                strcat(response, ", ");
             first = 0;
 
             int dx = 0, dy = 0;
@@ -148,7 +113,7 @@ static void generate_look_response(server_t *srv, player_t *player, char *respon
             strcat(response, tile_content);
         }
     }
-    strcat(response, "]");
+    strcat(response, " ]\n");
 }
 
 static int calculate_sound_direction(server_t *srv, player_t *sender,
@@ -182,7 +147,7 @@ static int calculate_sound_direction(server_t *srv, player_t *sender,
 static void action_forward_end(server_t *srv, client_t *cl, player_t *player)
 {
     player_move_forward(player, srv);
-    send_response(cl->socket_fd, "ok");
+    send_response(cl->socket_fd, "ok\n");
 
     char msg[256];
     snprintf(msg, sizeof(msg), "ppo #%d %d %d %d\n",
@@ -193,7 +158,7 @@ static void action_forward_end(server_t *srv, client_t *cl, player_t *player)
 static void action_right_end(server_t *srv, client_t *cl, player_t *player)
 {
     player_turn(player, 1);
-    send_response(cl->socket_fd, "ok");
+    send_response(cl->socket_fd, "ok\n");
 
     char msg[256];
     snprintf(msg, sizeof(msg), "ppo #%d %d %d %d\n",
@@ -204,7 +169,7 @@ static void action_right_end(server_t *srv, client_t *cl, player_t *player)
 static void action_left_end(server_t *srv, client_t *cl, player_t *player)
 {
     player_turn(player, -1);
-    send_response(cl->socket_fd, "ok");
+    send_response(cl->socket_fd, "ok\n");
 
     char msg[256];
     snprintf(msg, sizeof(msg), "ppo #%d %d %d %d\n",
@@ -224,7 +189,7 @@ static void action_inventory_end(server_t *srv, client_t *cl, player_t *player)
     (void)srv;
     char response[512];
     snprintf(response, sizeof(response),
-        "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]",
+        "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]\n",
         player->inventory[0], player->inventory[1], player->inventory[2],
         player->inventory[3], player->inventory[4], player->inventory[5],
         player->inventory[6]);
@@ -237,7 +202,7 @@ static void action_take_end(server_t *srv, client_t *cl, player_t *player,
     tile_t *tile = &srv->map[player->y][player->x];
 
     if (player_take_resource(player, tile, res)) {
-        send_response(cl->socket_fd, "ok");
+        send_response(cl->socket_fd, "ok\n");
 
         char msg[256];
         snprintf(msg, sizeof(msg), "pgt #%d %d\n", player->id, res);
@@ -248,7 +213,7 @@ static void action_take_end(server_t *srv, client_t *cl, player_t *player,
             tile->stones[2], tile->stones[3], tile->stones[4], tile->stones[5]);
         broadcast_to_gui(srv, msg);
     } else {
-        send_response(cl->socket_fd, "ko");
+        send_response(cl->socket_fd, "ko\n");
     }
 }
 
@@ -258,7 +223,7 @@ static void action_set_end(server_t *srv, client_t *cl, player_t *player,
     tile_t *tile = &srv->map[player->y][player->x];
 
     if (player_drop_resource(player, tile, res)) {
-        send_response(cl->socket_fd, "ok");
+        send_response(cl->socket_fd, "ok\n");
 
         char msg[256];
         snprintf(msg, sizeof(msg), "pdr #%d %d\n", player->id, res);
@@ -269,7 +234,7 @@ static void action_set_end(server_t *srv, client_t *cl, player_t *player,
             tile->stones[2], tile->stones[3], tile->stones[4], tile->stones[5]);
         broadcast_to_gui(srv, msg);
     } else {
-        send_response(cl->socket_fd, "ko");
+        send_response(cl->socket_fd, "ko\n");
     }
 }
 
@@ -291,11 +256,11 @@ static void action_broadcast_end(server_t *srv, client_t *cl, player_t *player,
         }
 
         if (recv_cl) {
-            sendf(recv_cl->socket_fd, "message %d, %s", direction, message);
+            sendf(recv_cl->socket_fd, "message %d, %s\n", direction, message);
         }
     }
 
-    send_response(cl->socket_fd, "ok");
+    send_response(cl->socket_fd, "ok\n");
 
     char msg[512];
     snprintf(msg, sizeof(msg), "pbc #%d %s\n", player->id, message);
@@ -305,7 +270,7 @@ static void action_broadcast_end(server_t *srv, client_t *cl, player_t *player,
 static void action_fork_end(server_t *srv, client_t *cl, player_t *player)
 {
     srv->slots_remaining[player->team_idx]++;
-    send_response(cl->socket_fd, "ok");
+    send_response(cl->socket_fd, "ok\n");
 
     char msg[256];
     snprintf(msg, sizeof(msg), "pfk #%d\n", player->id);
@@ -338,7 +303,7 @@ static void action_eject_end(server_t *srv, client_t *cl, player_t *player)
 
             if (ejected_cl) {
                 int dir = calculate_sound_direction(srv, player, srv->players[i]);
-                sendf(ejected_cl->socket_fd, "eject: %d", dir);
+                sendf(ejected_cl->socket_fd, "eject: %d\n", dir);
             }
 
             char msg[256];
@@ -349,26 +314,17 @@ static void action_eject_end(server_t *srv, client_t *cl, player_t *player)
         }
     }
 
-    send_response(cl->socket_fd, ejected ? "ok" : "ko");
+    send_response(cl->socket_fd, ejected ? "ok\n" : "ko\n");
 }
 
 static void action_incantation_end(server_t *srv, client_t *cl,
     player_t *player)
 {
-    log_info("Completing incantation for player #%d at (%d,%d) level %d", 
-             player->id, player->x, player->y, player->level);
-             
     if (check_elevation_requirements(srv, player->x, player->y, player->level)) {
         perform_elevation(srv, player->x, player->y, player->level);
-        sendf(cl->socket_fd, "Current level: %d", player->level);
-        log_info("Player #%d successfully elevated to level %d", player->id, player->level);
+        sendf(cl->socket_fd, "Current level: %d\n", player->level);
     } else {
-        send_response(cl->socket_fd, "ko");
-        log_info("Player #%d incantation failed - requirements not met", player->id);
-        
-        char msg[256];
-        snprintf(msg, sizeof(msg), "pie %d %d 0\n", player->x, player->y);
-        broadcast_to_gui(srv, msg);
+        send_response(cl->socket_fd, "ko\n");
     }
     player->is_incanting = 0;
 }
@@ -389,15 +345,11 @@ void execute_pending_actions(server_t *srv)
                 }
             }
 
-            if (!cl) {
-                log_info("No client found for player #%d action completion", player->id);
+            if (!cl)
                 continue;
-            }
 
             char action[64], arg[256];
             sscanf(player->pending_action, "%s %[^\n]", action, arg);
-
-            log_info("Executing pending action '%s' for player #%d", action, player->id);
 
             if (strcmp(action, "incantation_end") == 0)
                 action_incantation_end(srv, cl, player);
