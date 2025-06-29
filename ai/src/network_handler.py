@@ -47,56 +47,46 @@ class NetworkHandler:
         with self.data_lock:
             try:
                 self.client_socket.connect(self.server_address)
-                print(f"Connected to server at {self.server_address}")
             except ConnectionRefusedError:
-                print(f"Connection refused to {self.server_address}")
                 return
             
             # Receive welcome message
-            welcome_msg = self._recv_line()
-            if not welcome_msg.startswith("WELCOME"):
-                print(f"Expected WELCOME, got: {welcome_msg}")
+            response = self.client_socket.recv(1024)
+            if response != b"WELCOME\n":
                 return
             
-            print(f"Received: {welcome_msg.strip()}")
-            
-            # Send team name
+            # Send team name and get world info
             self.client_socket.send(f"{self.team_name}\n".encode())
-            print(f"Sent team name: {self.team_name}")
 
-            # Read client number (available slots)
-            client_num_line = self._recv_line()
-            try:
-                self.available_slots = int(client_num_line.strip())
-                print(f"Available slots: {self.available_slots}")
-            except ValueError:
-                print(f"Error parsing available slots: '{client_num_line}'")
-                return
+            # Read response line by line to ensure complete message
+            response_buffer = ""
+            while "\n" not in response_buffer:
+                data = self.client_socket.recv(1024)
+                if not data:
+                    return
+                response_buffer += data.decode()
 
-            # Read world dimensions
-            dimensions_line = self._recv_line()
+            response = response_buffer.split("\n")[0].strip()
+            print(f"Server response after team name: '{response}'")
+
             try:
-                dimensions = dimensions_line.strip().split()
-                if len(dimensions) == 2:
-                    self.world_width, self.world_height = [int(x) for x in dimensions]
-                    print(f"World dimensions: {self.world_width}x{self.world_height}")
+                values = response.split()
+                if len(values) == 3:
+                    self.available_slots, self.world_width, self.world_height = [int(x) for x in values]
+                    print(f"Parsed: slots={self.available_slots}, width={self.world_width}, height={self.world_height}")
                 else:
-                    print(f"Unexpected dimensions format: {dimensions_line}")
+                    print(f"Unexpected response format: {response} (got {len(values)} values)")
                     return
             except ValueError as e:
-                print(f"Error parsing world dimensions: {e}")
+                print(f"Error parsing server response: {e}")
                 return
 
-            # Initialize game logic only if connection is successful
-            if self.available_slots > 0:
-                self.game_logic = GameLogic(
-                    self.team_name, self.server_address[0], self.server_address[1]
-                )
+            # Initialize game logic
+            self.game_logic = GameLogic(
+                self.team_name, self.server_address[0], self.server_address[1]
+            )
+            if self.available_slots >= 0:
                 self.is_connected = True
-                print("AI initialized successfully")
-            else:
-                print("No available slots for this team")
-                return
         
         # Set socket timeout for non-blocking operation
         self.client_socket.settimeout(0.5)
@@ -115,27 +105,10 @@ class NetworkHandler:
             except socket.timeout:
                 if not self.is_running:
                     return
-                continue
-            except Exception as e:
-                print(f"Network error: {e}")
-                break
                     
             with self.data_lock:
                 if "\n" in self.message_buffer:
                     self.message_ready.set()
-    
-    def _recv_line(self):
-        """Receive a complete line from socket."""
-        line = ""
-        while not line.endswith('\n'):
-            try:
-                data = self.client_socket.recv(1)
-                if not data:
-                    break
-                line += data.decode()
-            except socket.timeout:
-                continue
-        return line
     
     def get_next_message(self):
         """Get the next complete message from buffer."""
@@ -148,11 +121,7 @@ class NetworkHandler:
     
     def send_command(self, command):
         """Send a command to the server."""
-        try:
-            self.client_socket.send(f"{command}\n".encode())
-            print(f"Sent: {command}")
-        except Exception as e:
-            print(f"Error sending command '{command}': {e}")
+        self.client_socket.send(f"{command}\n".encode())
     
     def get_message_count(self):
         """Get number of complete messages in buffer."""
@@ -178,100 +147,57 @@ class NetworkHandler:
         # Check connection
         with self.data_lock:
             if not self.is_connected:
-                print("Not connected to server")
                 return
-        
-        print("Starting AI main loop...")
         
         received_responses = []
         broadcast_messages = []
         pending_commands = []
-        commands_sent = 0
-        max_commands_in_flight = 10
         
         while self.is_running:
-            try:
-                # Process responses for sent commands
-                while commands_sent > 0:
-                    # Get message from server
-                    message = None
-                    if self.message_ready.is_set():
-                        message = self.wait_for_message()
+            # Process responses for sent commands
+            commands_processed = 0
+            while commands_processed < min(len(pending_commands), 10):
+                # Get message from server
+                if self.message_ready.is_set():
+                    server_message = self.wait_for_message()
+                else:
+                    temp_message = self.get_next_message()
+                    if temp_message is None:
+                        server_message = self.wait_for_message()
                     else:
-                        temp_message = self.get_next_message()
-                        if temp_message is None:
-                            # Wait a bit for a message
-                            self.client_socket.settimeout(0.1)
-                            try:
-                                data = self.client_socket.recv(1024)
-                                if data:
-                                    with self.data_lock:
-                                        self.message_buffer += data.decode()
-                                    if "\n" in self.message_buffer:
-                                        message = self.get_next_message()
-                            except socket.timeout:
-                                break
-                            except Exception as e:
-                                print(f"Error receiving data: {e}")
-                                break
-                        else:
-                            message = temp_message
-                    
-                    if message is None:
-                        break
-                        
-                    print(f"Received: {message}")
-                    
-                    # Handle broadcast messages
-                    if message.startswith("message "):
-                        broadcast_messages.append(message[8:])  # Remove "message " prefix
-                    elif "Elevation underway" in message:
-                        received_responses.append("Incantation|" + message)
-                        commands_sent -= 1
-                    elif "Current level" in message:
-                        received_responses.append("Incantation|" + message)
-                        commands_sent -= 1
-                    elif message == "dead":
-                        print("Player died!")
-                        self.is_running = False
-                        return
-                    else:
-                        # Regular command response
-                        if pending_commands:
-                            command_sent = pending_commands.pop(0)
-                            received_responses.append(command_sent + "|" + message)
-                            commands_sent -= 1
+                        server_message = temp_message
                 
-                # Get new commands from game logic if we have processed all responses
-                if commands_sent == 0 and self.game_logic:
-                    new_commands = self.game_logic.process_turn(received_responses, broadcast_messages)
-                    pending_commands.extend(new_commands)
-                    received_responses = []
-                    broadcast_messages = []
+                # Handle broadcast messages
+                if server_message.split(" ")[0] == "message":
+                    broadcast_messages.append(server_message.split("message ")[1])
+                elif "Elevation underway" in server_message:
+                    received_responses.append("Incantation|" + server_message)
+                elif "Current level" in server_message:
+                    received_responses.append("Incantation|" + server_message)
+                else:
+                    # Regular command response
+                    received_responses.append(pending_commands[commands_processed].split("\n", 1)[0] + "|" + server_message)
+                    commands_processed += 1
+            
+            # Remove processed commands
+            if len(pending_commands) > 10:
+                pending_commands = pending_commands[10:]
+            else:
+                pending_commands = []
+            
+            # Get new commands from game logic
+            if not pending_commands:
+                pending_commands = self.game_logic.process_turn(received_responses, broadcast_messages)
+                received_responses = []
+                broadcast_messages = []
+            
+            # Send up to 10 commands
+            commands_to_send = min(len(pending_commands), 10)
+            for i in range(commands_to_send):
+                self.send_command(pending_commands[i])
                 
-                # Send up to max_commands_in_flight commands
-                commands_to_send = min(len(pending_commands), max_commands_in_flight - commands_sent)
-                for i in range(commands_to_send):
-                    command = pending_commands[i]
-                    self.send_command(command)
-                    commands_sent += 1
-                    
-                    # For incantation, we expect an immediate response
-                    if command == "Incantation":
-                        break
-                
-                # Remove sent commands from pending list
-                pending_commands = pending_commands[commands_to_send:]
-                
-                # Small delay to prevent busy waiting
-                sleep(0.01)
-                
-            except KeyboardInterrupt:
-                print("Interrupted by user")
-                break
-            except Exception as e:
-                print(f"Error in main loop: {e}")
-                break
-        
-        print("AI stopped")
-        self.is_running = False
+            # Remove incantation commands immediately after sending
+            for i in range(commands_to_send):
+                if "Incantation" in pending_commands[i]:
+                    pending_commands.pop(i)
+                    break

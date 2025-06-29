@@ -187,7 +187,6 @@ static void cmd_look(server_t *srv, client_t *cl, player_t *player) {
 }
 
 static void cmd_inventory(server_t *srv, client_t *cl, player_t *player) {
-    (void)srv; // Mark parameter as intentionally unused
     char response[512];
     snprintf(response, sizeof(response),
         "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]\n",
@@ -219,8 +218,8 @@ static void cmd_take(server_t *srv, client_t *cl, player_t *player, const char *
             tile->stones[2], tile->stones[3], tile->stones[4], tile->stones[5]);
         broadcast_to_gui(srv, msg);
         
-        // Update player inventory for GUI
-        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d\n",
+        // Update player inventory for GUI - FIXED FORMAT
+        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
             player->id, player->x, player->y, player->inventory[0], player->inventory[1], 
             player->inventory[2], player->inventory[3], player->inventory[4], player->inventory[5], player->inventory[6]);
         broadcast_to_gui(srv, msg);
@@ -251,8 +250,8 @@ static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *o
             tile->stones[2], tile->stones[3], tile->stones[4], tile->stones[5]);
         broadcast_to_gui(srv, msg);
         
-        // Update player inventory for GUI
-        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d\n",
+        // Update player inventory for GUI - FIXED FORMAT
+        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
             player->id, player->x, player->y, player->inventory[0], player->inventory[1], 
             player->inventory[2], player->inventory[3], player->inventory[4], player->inventory[5], player->inventory[6]);
         broadcast_to_gui(srv, msg);
@@ -435,7 +434,7 @@ static void cmd_pin(server_t *srv, client_t *cl, int player_id) {
     for (int i = 0; i < srv->player_count; i++) {
         if (srv->players[i]->id == player_id && srv->players[i]->alive) {
             player_t *p = srv->players[i];
-            sendf(cl->socket_fd, "pin #%d %d %d %d %d %d %d %d %d\n",
+            sendf(cl->socket_fd, "pin #%d %d %d %d %d %d %d %d %d %d\n",
                   p->id, p->x, p->y, p->inventory[0], p->inventory[1], p->inventory[2], 
                   p->inventory[3], p->inventory[4], p->inventory[5], p->inventory[6]);
             return;
