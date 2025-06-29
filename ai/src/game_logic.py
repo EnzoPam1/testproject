@@ -2,28 +2,15 @@
 ## EPITECH PROJECT, 2025
 ## Zappy
 ## File description:
-## game_logic - VERSION CORRIGÉE AVEC MACHINE À ÉTATS
+## game_logic
 ##
 
 from enum import Enum
-from typing import Tuple, List, Dict
+from typing import Tuple, List
 import subprocess
-import time
-import random
-import logging
+from itertools import cycle
+from random import randint
 from game_utils import GameUtils
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-class AIState(Enum):
-    INITIALISATION = "initialisation"
-    EVALUATION = "evaluation"
-    SURVIE = "survie"
-    COLLECTE = "collecte"
-    COORDINATION = "coordination"
-    ELEVATION = "elevation"
-    EXPLORATION = "exploration"
 
 class Orientation(Enum):
     NORTH = 1
@@ -46,19 +33,41 @@ class Position:
             return self.x == other.x and self.y == other.y
         return False
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def get_coordinates(self):
+        return (self.x, self.y)
+
+    def set_coordinates(self, x: int, y: int):
+        self.x = x
+        self.y = y
+
     def move_north(self):
-        self.y = (self.y - 1) % self.map_height
+        if self.y == 0:
+            self.y = self.map_height - 1
+        else:
+            self.y -= 1
 
     def move_south(self):
-        self.y = (self.y + 1) % self.map_height
+        if self.y == self.map_height - 1:
+            self.y = 0
+        else:
+            self.y += 1
 
     def move_west(self):
-        self.x = (self.x - 1) % self.map_width
+        if self.x == 0:
+            self.x = self.map_width - 1
+        else:
+            self.x -= 1
 
     def move_east(self):
-        self.x = (self.x + 1) % self.map_width
+        if self.x == self.map_width - 1:
+            self.x = 0
+        else:
+            self.x += 1
 
-# Exigences pour chaque niveau d'élévation
+# Requirements for each elevation level
 ELEVATION_REQUIREMENTS = [
     # [nb_players, linemate, deraumere, sibur, mendiane, phiras, thystame]
     [1, 1, 0, 0, 0, 0, 0],  # Level 1->2
@@ -71,7 +80,14 @@ ELEVATION_REQUIREMENTS = [
 ]
 
 VISION_RANGES = [
-    [1, 3], [4, 8], [9, 15], [16, 24], [25, 35], [36, 48], [49, 63], [64, 80]
+    [1, 3],    # Level 1
+    [4, 8],    # Level 2
+    [9, 15],   # Level 3
+    [16, 24],  # Level 4
+    [25, 35],  # Level 5
+    [36, 48],  # Level 6
+    [49, 63],  # Level 7
+    [64, 80],  # Level 8
 ]
 
 RESOURCE_TYPES = ["food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"]
@@ -87,295 +103,389 @@ class Inventory:
         self.thystame = 0
 
     def add_resource(self, resource: str, amount: int):
-        setattr(self, resource, getattr(self, resource, 0) + amount)
+        """Add a resource to inventory."""
+        if resource == "food":
+            self.food += amount
+        elif resource == "linemate":
+            self.linemate += amount
+        elif resource == "deraumere":
+            self.deraumere += amount
+        elif resource == "sibur":
+            self.sibur += amount
+        elif resource == "mendiane":
+            self.mendiane += amount
+        elif resource == "phiras":
+            self.phiras += amount
+        elif resource == "thystame":
+            self.thystame += amount
+        else:
+            raise ValueError("Invalid resource type")
 
     def remove_resource(self, resource: str, amount: int):
-        current = getattr(self, resource, 0)
-        if current < amount:
-            raise ValueError(f"Pas assez de {resource}")
-        setattr(self, resource, current - amount)
+        """Remove a resource from inventory."""
+        current_amount = self.get_resource(resource)
+        if current_amount < amount:
+            raise ValueError(f"Not enough {resource}")
+        
+        if resource == "food":
+            self.food -= amount
+        elif resource == "linemate":
+            self.linemate -= amount
+        elif resource == "deraumere":
+            self.deraumere -= amount
+        elif resource == "sibur":
+            self.sibur -= amount
+        elif resource == "mendiane":
+            self.mendiane -= amount
+        elif resource == "phiras":
+            self.phiras -= amount
+        elif resource == "thystame":
+            self.thystame -= amount
 
     def get_resource(self, resource: str):
-        return getattr(self, resource, 0)
+        """Get amount of a specific resource."""
+        if resource == "food":
+            return self.food
+        elif resource == "linemate":
+            return self.linemate
+        elif resource == "deraumere":
+            return self.deraumere
+        elif resource == "sibur":
+            return self.sibur
+        elif resource == "mendiane":
+            return self.mendiane
+        elif resource == "phiras":
+            return self.phiras
+        elif resource == "thystame":
+            return self.thystame
+        else:
+            raise ValueError("Invalid resource type")
 
     def to_string(self):
+        """Convert inventory to string representation."""
         return (f"food {self.food}, linemate {self.linemate}, "
                 f"deraumere {self.deraumere}, sibur {self.sibur}, "
                 f"mendiane {self.mendiane}, phiras {self.phiras}, "
                 f"thystame {self.thystame}")
 
     def set_resource(self, resource: str, amount: int):
-        if hasattr(self, resource):
-            setattr(self, resource, int(amount))
+        """Set a specific resource amount."""
+        if "food" in resource:
+            self.food = int(amount)
+        elif "linemate" in resource:
+            self.linemate = int(amount)
+        elif "deraumere" in resource:
+            self.deraumere = int(amount)
+        elif "sibur" in resource:
+            self.sibur = int(amount)
+        elif "mendiane" in resource:
+            self.mendiane = int(amount)
+        elif "phiras" in resource:
+            self.phiras = int(amount)
+        elif "thystame" in resource:
+            self.thystame = int(amount)
         else:
-            raise ValueError(f"Type de ressource invalide: {resource}")
+            raise ValueError("Invalid resource type")
 
     def set_from_list(self, inventory_list):
-        for i, resource in enumerate(RESOURCE_TYPES):
-            if i < len(inventory_list) and len(inventory_list[i]) >= 2:
-                self.set_resource(resource, inventory_list[i][1])
-
-class DetecteurBoucle:
-    def __init__(self, longueur_pattern=3, max_repetitions=3):
-        self.historique_commandes = []
-        self.longueur_pattern = longueur_pattern
-        self.max_repetitions = max_repetitions
-        self.boucle_detectee = False
-        self.max_historique = longueur_pattern * max_repetitions
-
-    def ajouter_commande(self, commande):
-        self.historique_commandes.append(commande)
-        if len(self.historique_commandes) > self.max_historique:
-            self.historique_commandes.pop(0)
-        
-        if len(self.historique_commandes) >= self.longueur_pattern * 2:
-            self.boucle_detectee = self.detecter_pattern()
-        
-        return self.boucle_detectee
-
-    def detecter_pattern(self):
-        if len(self.historique_commandes) < self.longueur_pattern * 2:
-            return False
-        
-        pattern = self.historique_commandes[-self.longueur_pattern:]
-        pattern_precedent = self.historique_commandes[-self.longueur_pattern*2:-self.longueur_pattern]
-        
-        return pattern == pattern_precedent
-
-    def casser_boucle(self):
-        logger.warning("Boucle détectée! Cassage du pattern...")
-        self.historique_commandes.clear()
-        self.boucle_detectee = False
-        
-        # Forcer une action aléatoire pour casser la boucle
-        actions = ["Forward", "Left", "Right", "Broadcast AIDE"]
-        return random.choice(actions)
+        """Set inventory from parsed list."""
+        for i in range(7):
+            self.set_resource(RESOURCE_TYPES[i], inventory_list[i][1])
 
 class GameLogic:
     def __init__(self, team_name: str, server_host, server_port):
-        # Identificateurs
         self.player_id = 0
         self.level = 1
-        self.team_name = team_name
-        self.server_host = server_host
-        self.server_port = server_port
-        
-        # État et inventaires
-        self.state = AIState.INITIALISATION
         self.inventory = Inventory()
         self.team_inventories = [Inventory() for _ in range(7)]  # 6 players + total
         self.orientation = Orientation.NORTH
-        
-        # Données de jeu
         self.available_slots = 0
+        
+        self.command_queue = []
         self.vision_data = []
         self.inventory_data = []
+        self.team_name = team_name
+        self.server_host = server_host
+        self.server_port = server_port
+        self.new_item_found = False
+        self.target_resource = ""
         
-        # Gestion des états et temporisation
-        self.last_state_change = time.time()
-        self.assessment_cycles = 0
-        self.command_queue = []
-        
-        # Seuils critiques
-        self.food_threshold_critical = 5
-        self.food_threshold_safe = 20
-        
-        # Coordination d'équipe
         self.enough_players = False
-        self.is_elevating = False
-        self.broadcast_cooldown = {}
-        
-        # Détection de boucle
-        self.detecteur_boucle = DetecteurBoucle()
-        
-        # Flags
         self.first_turn = True
         self.inventory_updated = False
+        self.is_elevating = False
         self.movement_done = False
 
-    def transition_vers(self, nouvel_etat):
-        """Transition d'état avec logging"""
-        if nouvel_etat != self.state:
-            logger.info(f"Transition d'état: {self.state.value} → {nouvel_etat.value}")
-            self.state = nouvel_etat
-            self.last_state_change = time.time()
-            self.assessment_cycles = 0
+    def encrypt_message(self, message: str):
+        """Encrypt message using team name as key."""
+        return GameUtils.encrypt_and_compress(str(self.player_id) + "|" + message, self.team_name)
 
-    def determiner_prochain_etat(self):
-        """Logique de décision critique avec seuils clairs"""
-        current_food = self.inventory.get_resource("food")
-        
-        # Priorité 1: Survie critique
-        if current_food < self.food_threshold_critical:
-            return AIState.SURVIE
-            
-        # Priorité 2: Vérification de l'élévation
-        if self.peut_tenter_elevation():
-            return AIState.COORDINATION
-            
-        # Priorité 3: Collection de ressources
-        ressources_manquantes = self.get_ressources_manquantes()
-        if ressources_manquantes and current_food > self.food_threshold_safe:
-            return AIState.COLLECTE
-            
-        # Priorité 4: Collecte de nourriture préventive
-        if current_food < self.food_threshold_safe:
-            return AIState.SURVIE
-            
-        # Par défaut: Explorer
-        return AIState.EXPLORATION
+    def decrypt_message(self, message: str):
+        """Decrypt message using team name as key."""
+        return GameUtils.decrypt_and_decompress(message, self.team_name)
 
-    def forcer_progression_etat(self):
-        """Force la progression d'état après timeout"""
-        temps_ecoule = time.time() - self.last_state_change
+    def parse_vision_data(self, content: str):
+        """Parse vision data from look command."""
+        content = content.split(",")
+        self.vision_data = GameUtils.parse_string_to_list(content)
+
+    def broadcast_inventory(self):
+        """Broadcast current inventory to team."""
+        encrypted_msg = self.encrypt_message("inventory|" + self.inventory.to_string())
+        self.command_queue.append(f"Broadcast {encrypted_msg}")
+
+    def turn_left(self):
+        self.orientation = Orientation((self.orientation.value - 2) % 4 + 1)
+
+    def turn_right(self):
+        self.orientation = Orientation(self.orientation.value % 4 + 1)
+
+    def move_forward(self):
+        pass
+
+    def find_needed_resource(self):
+        resource_index = 1
+        for resource in RESOURCE_TYPES:
+            if resource == "food":
+                continue
+            if self.team_inventories[6].get_resource(resource) < ELEVATION_REQUIREMENTS[self.level - 1][resource_index]:
+                return resource
+            resource_index += 1
+        return None
+
+    def navigate_to_tile(self, tile_position: int, target_item: str):
+        """Navigate to a specific tile and collect item."""
+        if tile_position == 0:
+            # Item is on current tile
+            for item in self.vision_data[0]:
+                if target_item in item:
+                    self.command_queue.append(f"Take {target_item}")
+            self.inventory_updated = True
+            return
+        self.command_queue.append("Forward")
+        # Calculate which level the tile is on
+        level = 0
+        while not VISION_RANGES[level][0] <= tile_position <= VISION_RANGES[level][1]:
+            self.command_queue.append("Forward")
+            level += 1
+        # Calculate direction adjustment
+        level_center = (VISION_RANGES[level][0] + VISION_RANGES[level][1]) // 2
+        direction_offset = tile_position - level_center
+
+        if direction_offset < 0:
+            self.command_queue.append("Left")
+        elif direction_offset > 0:
+            self.command_queue.append("Right")
         
-        if temps_ecoule > 30:  # 30 secondes max par état
-            logger.warning(f"Timeout d'état ({temps_ecoule:.1f}s), progression forcée")
-            
-            if self.state == AIState.EVALUATION:
-                self.transition_vers(AIState.EXPLORATION)
-            elif self.state == AIState.EXPLORATION:
-                self.transition_vers(AIState.COLLECTE)
-            elif self.state == AIState.COLLECTE:
-                self.transition_vers(AIState.EXPLORATION)
+        # Move to target tile
+        for _ in range(abs(direction_offset)):
+            self.command_queue.append("Forward")
+        
+        # Collect item
+        for item in self.vision_data[level]:
+            if target_item in item:
+                self.command_queue.append(f"Take {target_item}")
+        
+        self.inventory_updated = True
+
+    def find_item_in_vision(self, item: str):
+        for i, tile_data in enumerate(self.vision_data):
+            if item in str(tile_data):
+                return i
+        return None
+
+    def collect_resources(self):
+        food_threshold = 20 if self.player_id == 0 else 40
+        
+        # Priority 1: Collect food if needed
+        if self.inventory.get_resource("food") < food_threshold:
+            food_tile = self.find_item_in_vision("food")
+            if food_tile is not None:
+                self.navigate_to_tile(food_tile, "food")
+                return
             else:
-                self.transition_vers(AIState.EVALUATION)
-
-    def evaluer_situation(self):
-        """Évaluation avec conditions de sortie claires"""
-        self.command_queue.extend(["Inventory", "Look", "Connect_nbr"])
-        self.assessment_cycles += 1
+                # Wander to find food
+                if randint(0, 5) == 0:
+                    self.command_queue.append("Left")
+                self.command_queue.append("Forward")
+                return
         
-        # Déterminer le prochain état
-        prochain_etat = self.determiner_prochain_etat()
-        
-        # Sortir de l'évaluation après 2 cycles max
-        if prochain_etat != AIState.EVALUATION or self.assessment_cycles >= 2:
-            self.transition_vers(prochain_etat)
-
-    def assurer_survie(self):
-        """Collecte prioritaire de nourriture"""
-        logger.info("Mode survie: recherche de nourriture")
-        
-        # Chercher de la nourriture dans la vision
-        nourriture_trouvee = self.find_item_in_vision("food")
-        
-        if nourriture_trouvee is not None:
-            if nourriture_trouvee == 0:
-                # Nourriture sur la case actuelle
-                self.command_queue.append("Take food")
+        # Priority 2: Collect stones needed for elevation
+        needed_resource = self.find_needed_resource()
+        if needed_resource is not None:
+            resource_tile = self.find_item_in_vision(needed_resource)
+            if resource_tile is not None:
+                self.navigate_to_tile(resource_tile, needed_resource)
+                return
             else:
-                # Se déplacer vers la nourriture
-                self.naviguer_vers_case(nourriture_trouvee, "food")
+                # Wander to find needed resource
+                if randint(0, 5) == 0:
+                    self.command_queue.append("Left")
+                self.command_queue.append("Forward")
+                return
         else:
-            # Explorer pour trouver de la nourriture
-            self.explorer_aleatoire()
-        
-        # Retourner à l'évaluation après action
-        self.transition_vers(AIState.EVALUATION)
+            # Check inventory if no resources needed
+            self.command_queue.append("Inventory")
 
-    def collecter_ressources(self):
-        """Collection intelligente de ressources"""
-        ressources_manquantes = self.get_ressources_manquantes()
+    def update_inventory(self, inventory_list):
+        """Update player inventory and return if changed."""
+        changed = False
+        for item in inventory_list:
+            if self.inventory.get_resource(item[0]) != int(item[1]):
+                changed = True
+            self.inventory.set_resource(item[0], int(item[1]))
         
-        if not ressources_manquantes:
-            logger.info("Toutes les ressources nécessaires collectées")
-            self.transition_vers(AIState.COORDINATION)
+        self.team_inventories[self.player_id - 1].set_from_list(inventory_list)
+        return changed
+
+    def update_team_inventory(self, inventory_list):
+        """Update team member inventory."""
+        for item in inventory_list:
+            self.team_inventories[self.player_id - 1].set_resource(item[0], item[1])
+        self.calculate_total_inventory()
+
+    def calculate_total_inventory(self):
+        """Calculate total team inventory."""
+        for resource in RESOURCE_TYPES:
+            self.team_inventories[6].set_resource(resource, 0)
+        
+        for i in range(6):
+            for resource in RESOURCE_TYPES:
+                current_amount = self.team_inventories[6].get_resource(resource)
+                member_amount = self.team_inventories[i].get_resource(resource)
+                self.team_inventories[6].set_resource(resource, current_amount + member_amount)
+
+    def finalize_turn(self):
+        """Finalize turn with inventory check and look."""
+        if self.inventory_updated:
+            self.command_queue.append("Inventory")
+            self.inventory_updated = False
+        
+        if self.inventory_data:
+            if self.update_inventory(self.inventory_data):
+                self.broadcast_inventory()
+        
+        self.command_queue.append("Look")
+
+    def spawn_new_player(self):
+        """Handle player forking logic."""
+        if (self.inventory.get_resource("food") < 20 or 
+            self.enough_players or self.player_id != 0):
             return
         
-        # Chercher la ressource la plus prioritaire
-        for ressource in ["linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"]:
-            if ressource in ressources_manquantes:
-                position = self.find_item_in_vision(ressource)
-                if position is not None:
-                    logger.info(f"Collecte de {ressource} à la position {position}")
-                    if position == 0:
-                        self.command_queue.append(f"Take {ressource}")
-                    else:
-                        self.naviguer_vers_case(position, ressource)
-                    self.transition_vers(AIState.EVALUATION)
-                    return
-        
-        # Aucune ressource nécessaire visible, explorer
-        self.explorer_aleatoire()
-        self.transition_vers(AIState.EVALUATION)
-
-    def coordonner_equipe(self):
-        """Coordination d'équipe pour l'élévation"""
-        logger.info("Coordination d'équipe pour élévation")
-        
-        # Diffuser l'état de préparation
-        message_crypt = self.encrypt_message(f"PRET_LVL_{self.level}")
-        self.command_queue.append(f"Broadcast {message_crypt}")
-        
-        # Vérifier si assez de joueurs sont prêts
-        if self.enough_players or self.player_id >= 6:
-            self.transition_vers(AIState.ELEVATION)
+        if self.available_slots != 0:
+            subprocess.Popen([
+                "./zappy_ai", "-p", str(self.server_port),
+                "-n", self.team_name, "-h", str(self.server_host)
+            ])
+            self.player_id = 1
         else:
-            # Attendre plus de joueurs
-            self.transition_vers(AIState.EXPLORATION)
+            self.command_queue.append("Fork")
 
-    def tenter_elevation(self):
-        """Tentative d'élévation"""
-        logger.info(f"Tentative d'élévation niveau {self.level}")
-        
-        # Déposer les ressources nécessaires
-        self.deposer_ressources_elevation()
-        
-        # Vérifier les conditions et lancer l'incantation
-        if self.peut_performer_elevation():
-            self.command_queue.append("Incantation")
-        
-        self.transition_vers(AIState.EVALUATION)
+    def process_broadcast_messages(self, messages: List[str]):
+        """Process received broadcast messages."""
+        for message in messages:
+            direction = message.split(", ")[0]
+            content = message.split(", ")[1].split("\n")[0]
+            decrypted = self.decrypt_message(content)
+            
+            if decrypted == "error":
+                continue
+            
+            sender_id = int(decrypted.split("|", 1)[0])
+            message_content = decrypted.split("|", 1)[1]
+            
+            if "ready" in message_content:
+                self.enough_players = True
+                if self.player_id == 0:
+                    self.player_id = 1
+            
+            if "here" in message_content:
+                self.player_id += 1
+                if self.player_id == 6:
+                    ready_msg = self.encrypt_message("ready")
+                    self.command_queue.append(f"Broadcast {ready_msg}")
+            
+            if "inventory" in message_content:
+                inventory_str = message_content.split("|")[1]
+                parsed_inventory = GameUtils.parse_string_to_list(inventory_str)
+                self.team_inventories[sender_id - 1].set_from_list(parsed_inventory)
+                self.calculate_total_inventory()
+            
+            if "finished" in message_content:
+                self.is_elevating = False
+            
+            if "elevation" in message_content and not self.movement_done:
+                self.command_queue = []
+                self.is_elevating = True
+                direction_num = int(direction)
+                
+                # Move based on broadcast direction
+                if direction_num == 1:
+                    self.command_queue.append("Forward")
+                elif direction_num == 5:
+                    self.command_queue.extend(["Left", "Left", "Forward"])
+                elif direction_num in [2, 3, 4]:
+                    self.command_queue.extend(["Left", "Forward"])
+                elif direction_num in [6, 7, 8]:
+                    self.command_queue.extend(["Right", "Forward"])
+                elif direction_num == 0:
+                    self.drop_elevation_resources()
 
-    def explorer(self):
-        """Exploration de la carte"""
-        # Mouvement aléatoire occasionnel
-        if random.randint(0, 3) == 0:
-            actions = ["Left", "Right"]
-            self.command_queue.append(random.choice(actions))
-        
-        self.command_queue.append("Forward")
-        self.transition_vers(AIState.EVALUATION)
+    def drop_elevation_resources(self):
+        """Drop resources needed for elevation."""
+        resource_index = 1
+        for resource in RESOURCE_TYPES:
+            if resource == "food":
+                continue
+            required_amount = ELEVATION_REQUIREMENTS[self.level - 1][resource_index]
+            if required_amount > 0:
+                current_amount = self.inventory.get_resource(resource)
+                for _ in range(current_amount):
+                    self.command_queue.append(f"Set {resource}")
+            resource_index += 1
 
-    def explorer_aleatoire(self):
-        """Exploration aléatoire pour sortir des situations bloquées"""
-        if random.randint(0, 4) == 0:
-            self.command_queue.append(random.choice(["Left", "Right"]))
-        self.command_queue.append("Forward")
+    def process_command_responses(self, responses: List[str]):
+        """Process responses from sent commands."""
+        for response in responses:
+            command_parts = response.split("|")
+            command = command_parts[0]
+            result = command_parts[1] if len(command_parts) > 1 else ""
+            
+            if command == "Connect_nbr":
+                self.available_slots = int(result)
+            elif command == "Look":
+                self.vision_data = GameUtils.parse_string_to_list(result)
+            elif command == "Inventory":
+                self.inventory_data = GameUtils.parse_string_to_list(result)
+            elif command == "Incantation":
+                self.is_elevating = False
+                if len(result.split(":")) == 2:
+                    self.level = int(result.split(":")[1])
+                finished_msg = self.encrypt_message("finished")
+                self.command_queue.append(f"Broadcast {finished_msg}")
+            elif command in ["Forward", "Right", "Left"]:
+                self.movement_done = True
 
-    def peut_tenter_elevation(self):
-        """Vérification si l'élévation est possible"""
-        if self.level >= 8:
-            return False
-        
-        ressources_manquantes = self.get_ressources_manquantes()
-        return len(ressources_manquantes) == 0 and self.enough_players
+    def initialize_player(self):
+        """Initialize player on first turn."""
+        here_msg = self.encrypt_message("here")
+        self.command_queue.extend([
+            f"Broadcast {here_msg}",
+            "Inventory",
+            "Look",
+            "Connect_nbr"
+        ])
 
-    def get_ressources_manquantes(self):
-        """Calcule les ressources manquantes pour l'élévation"""
-        if self.level >= 8:
-            return {}
-        
-        requirements = ELEVATION_REQUIREMENTS[self.level - 1]
-        manquantes = {}
-        
-        for i, ressource in enumerate(["linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"]):
-            requis = requirements[i + 1]  # +1 car index 0 = nb_players
-            actuel = self.inventory.get_resource(ressource)
-            if actuel < requis:
-                manquantes[ressource] = requis - actuel
-        
-        return manquantes
-
-    def peut_performer_elevation(self):
-        """Vérifie si l'élévation peut être exécutée immédiatement"""
+    def can_perform_elevation(self):
+        """Check if elevation requirements are met."""
         if not self.vision_data:
             return False
         
-        # Compter les joueurs et ressources sur la case actuelle
+        # Count players and resources on current tile
         player_count = 0
-        resources = {r: 0 for r in ["linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"]}
+        resources = {"linemate": 0, "deraumere": 0, "sibur": 0, 
+                    "mendiane": 0, "phiras": 0, "thystame": 0}
         
         for item in self.vision_data[0]:
             if "player" in item:
@@ -385,170 +495,70 @@ class GameLogic:
                     if resource in item:
                         resources[resource] += 1
         
-        # Vérifier les exigences
+        # Check requirements
         requirements = ELEVATION_REQUIREMENTS[self.level - 1]
-        return (player_count >= requirements[0] and
-                all(resources[r] >= requirements[i+1] 
-                    for i, r in enumerate(["linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"])))
+        return (player_count >= 6 and
+                resources["linemate"] >= requirements[1] and
+                resources["deraumere"] >= requirements[2] and
+                resources["sibur"] >= requirements[3] and
+                resources["mendiane"] >= requirements[4] and
+                resources["phiras"] >= requirements[5] and
+                resources["thystame"] >= requirements[6])
 
-    def deposer_ressources_elevation(self):
-        """Dépose les ressources nécessaires pour l'élévation"""
-        if self.level >= 8:
+    def handle_elevation(self):
+        """Handle elevation logic."""
+        if self.player_id != 6:
             return
         
-        requirements = ELEVATION_REQUIREMENTS[self.level - 1]
-        for i, ressource in enumerate(["linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"]):
-            requis = requirements[i + 1]
-            for _ in range(requis):
-                if self.inventory.get_resource(ressource) > 0:
-                    self.command_queue.append(f"Set {ressource}")
-
-    def find_item_in_vision(self, item: str):
-        """Trouve un objet dans la vision"""
-        for i, tile_data in enumerate(self.vision_data):
-            if any(item in str(data) for data in tile_data):
-                return i
-        return None
-
-    def naviguer_vers_case(self, tile_position: int, target_item: str):
-        """Navigation vers une case spécifique"""
-        if tile_position == 0:
-            # Objet sur la case actuelle
-            self.command_queue.append(f"Take {target_item}")
-            return
+        # Check if all team members have enough food
+        enough_food = True
+        if not self.is_elevating:
+            for i in range(6):
+                if self.team_inventories[i].get_resource("food") < 40:
+                    enough_food = False
+                    break
         
-        # Logique de navigation simplifiée
-        self.command_queue.append("Forward")
-
-    def encrypt_message(self, message: str):
-        """Chiffre un message avec le nom d'équipe comme clé"""
-        return GameUtils.encrypt_and_compress(str(self.player_id) + "|" + message, self.team_name)
-
-    def decrypt_message(self, message: str):
-        """Déchiffre un message"""
-        return GameUtils.decrypt_and_decompress(message, self.team_name)
-
-    def parse_vision_data(self, content: str):
-        """Parse les données de vision"""
-        content = content.split(",")
-        self.vision_data = GameUtils.parse_string_to_list(content)
-
-    def update_inventory(self, inventory_list):
-        """Met à jour l'inventaire du joueur"""
-        changed = False
-        for item in inventory_list:
-            if len(item) >= 2:
-                old_value = self.inventory.get_resource(item[0])
-                new_value = int(item[1])
-                if old_value != new_value:
-                    changed = True
-                self.inventory.set_resource(item[0], new_value)
+        # Start elevation if conditions are met
+        if self.find_needed_resource() is None and enough_food:
+            self.is_elevating = True
         
-        if self.player_id > 0:
-            self.team_inventories[self.player_id - 1].set_from_list(inventory_list)
-        return changed
-
-    def process_command_responses(self, responses: List[str]):
-        """Traite les réponses des commandes envoyées"""
-        for response in responses:
-            if "|" in response:
-                command_parts = response.split("|", 1)
-                command = command_parts[0]
-                result = command_parts[1] if len(command_parts) > 1 else ""
-                
-                if command == "Connect_nbr":
-                    self.available_slots = int(result)
-                elif command == "Look":
-                    self.vision_data = GameUtils.parse_string_to_list(result)
-                elif command == "Inventory":
-                    inventory_parsed = GameUtils.parse_string_to_list(result)
-                    self.update_inventory(inventory_parsed)
-                elif command == "Incantation":
-                    self.is_elevating = False
-                    if "Current level:" in result:
-                        self.level = int(result.split(":")[1].strip())
-                        logger.info(f"Élévation réussie! Nouveau niveau: {self.level}")
-
-    def process_broadcast_messages(self, messages: List[str]):
-        """Traite les messages de diffusion reçus"""
-        for message in messages:
-            try:
-                if ", " in message:
-                    direction = message.split(", ")[0]
-                    content = message.split(", ")[1].strip()
-                    decrypted = self.decrypt_message(content)
-                    
-                    if decrypted != "error" and "|" in decrypted:
-                        sender_id = int(decrypted.split("|", 1)[0])
-                        message_content = decrypted.split("|", 1)[1]
-                        
-                        if "PRET_LVL_" in message_content:
-                            self.enough_players = True
-                            logger.info(f"Joueur {sender_id} prêt pour élévation")
-                        elif "here" in message_content:
-                            self.player_id += 1
-                            if self.player_id >= 6:
-                                ready_msg = self.encrypt_message("ready")
-                                self.command_queue.append(f"Broadcast {ready_msg}")
-            except Exception as e:
-                logger.warning(f"Erreur traitement message: {e}")
-
-    def initialize_player(self):
-        """Initialise le joueur au premier tour"""
-        here_msg = self.encrypt_message("here")
-        self.command_queue.extend([
-            f"Broadcast {here_msg}",
-            "Inventory",
-            "Look",
-            "Connect_nbr"
-        ])
-        self.transition_vers(AIState.EVALUATION)
+        if self.is_elevating:
+            elevation_msg = self.encrypt_message("elevation")
+            self.command_queue.extend([
+                f"Broadcast {elevation_msg}",
+                "Look"
+            ])
+            self.drop_elevation_resources()
+            
+            if self.can_perform_elevation():
+                self.command_queue.append("Incantation")
 
     def process_turn(self, responses: List[str], messages: List[str]) -> List[str]:
-        """Traitement principal d'un tour de jeu avec machine à états"""
+        """Main game logic processing."""
         self.command_queue = []
         
-        # Détection de boucle
-        if responses:
-            derniere_commande = responses[-1].split("|")[0] if "|" in responses[-1] else responses[-1]
-            if self.detecteur_boucle.ajouter_commande(derniere_commande):
-                action_cassage = self.detecteur_boucle.casser_boucle()
-                self.command_queue.append(action_cassage)
-                return self.command_queue
-        
-        # Premier tour
+        # First turn initialization
         if self.first_turn:
             self.initialize_player()
             self.first_turn = False
             return self.command_queue
         
-        # Traitement des réponses et messages
+        # Process command responses and messages
         self.process_command_responses(responses)
         self.process_broadcast_messages(messages)
         
-        # Vérifier le timeout d'état
-        self.forcer_progression_etat()
+        # Handle elevation if applicable
+        self.handle_elevation()
         
-        # Exécution basée sur l'état actuel
-        if self.state == AIState.EVALUATION:
-            self.evaluer_situation()
-        elif self.state == AIState.SURVIE:
-            self.assurer_survie()
-        elif self.state == AIState.COLLECTE:
-            self.collecter_ressources()
-        elif self.state == AIState.COORDINATION:
-            self.coordonner_equipe()
-        elif self.state == AIState.ELEVATION:
-            self.tenter_elevation()
-        elif self.state == AIState.EXPLORATION:
-            self.explorer()
+        # Normal gameplay when not elevating
+        if not self.is_elevating:
+            self.spawn_new_player()
+            self.collect_resources()
+            self.finalize_turn()
         
-        # Reset des données temporaires
+        # Reset turn state
         self.inventory_data = []
         self.movement_done = False
-        
-        # Ajouter Connect_nbr à la fin pour surveiller les slots
-        if self.command_queue and self.command_queue[-1] != "Connect_nbr":
-            self.command_queue.append("Connect_nbr")
+        self.command_queue.append("Connect_nbr")
         
         return self.command_queue
