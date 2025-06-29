@@ -6,6 +6,7 @@
 */
 
 #include <math.h>
+#include <stdlib.h>
 #include "broadcast.h"
 #include "game.h"
 #include "player.h"

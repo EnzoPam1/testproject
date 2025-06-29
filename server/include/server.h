@@ -2,45 +2,50 @@
 ** EPITECH PROJECT, 2025
 ** Zappy
 ** File description:
-** Command processing
+** Server main header
 */
 
-#ifndef COMMAND_H_
-#define COMMAND_H_
+#ifndef SERVER_H_
+#define SERVER_H_
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <time.h>
 
 // Forward declarations
 typedef struct server_s server_t;
-typedef struct client_s client_t;
-typedef struct player_s player_t;
+typedef struct game_s game_t;
+typedef struct network_s network_t;
+typedef struct timer_s timer_t;
 
-// Command durations (in time units)
-#define DURATION_FORWARD 7
-#define DURATION_TURN 7
-#define DURATION_LOOK 7
-#define DURATION_INVENTORY 1
-#define DURATION_BROADCAST 7
-#define DURATION_FORK 42
-#define DURATION_EJECT 7
-#define DURATION_TAKE 7
-#define DURATION_SET 7
-#define DURATION_INCANTATION 300
+// Server configuration
+typedef struct config_s {
+    uint16_t port;
+    int width;
+    int height;
+    int clients_nb;
+    int freq;
+    char **team_names;
+    int team_count;
+} config_t;
 
-// Command processing
-void command_process(server_t *server, client_t *client, const char *command);
-void command_execute(server_t *server, client_t *client, player_t *player, const char *command);
+// Main server structure
+struct server_s {
+    config_t *config;
+    game_t *game;
+    network_t *network;
+    timer_t *timer;
+    bool running;
+    time_t start_time;
+};
 
-// AI commands
-void cmd_forward(server_t *server, client_t *client, player_t *player);
-void cmd_right(server_t *server, client_t *client, player_t *player);
-void cmd_left(server_t *server, client_t *client, player_t *player);
-void cmd_look(server_t *server, client_t *client, player_t *player);
-void cmd_inventory(server_t *server, client_t *client, player_t *player);
-void cmd_broadcast(server_t *server, client_t *client, player_t *player, const char *text);
-void cmd_connect_nbr(server_t *server, client_t *client, player_t *player);
-void cmd_fork(server_t *server, client_t *client, player_t *player);
-void cmd_eject(server_t *server, client_t *client, player_t *player);
-void cmd_take(server_t *server, client_t *client, player_t *player, const char *object);
-void cmd_set(server_t *server, client_t *client, player_t *player, const char *object);
-void cmd_incantation(server_t *server, client_t *client, player_t *player);
+// Server functions
+server_t *server_create(int argc, char **argv);
+void server_destroy(server_t *server);
+int server_run(server_t *server);
+void server_stop(server_t *server);
 
-#endif /* !COMMAND_H_ */
+// Global server instance for signal handling
+extern server_t *g_server;
+
+#endif /* !SERVER_H_ */
