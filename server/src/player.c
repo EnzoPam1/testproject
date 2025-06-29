@@ -2,16 +2,18 @@
 ** EPITECH PROJECT, 2025
 ** zappy_server
 ** File description:
-** Player management functions - Fixed for AI compatibility
+** Player management functions - Complete version
 */
 
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include "player.h"
 #include "server.h"
 #include "game.h"
 #include "utils.h"
+#include "actions.h"
 
 player_t *player_create(int client_idx, int team_idx, int x, int y)
 {
@@ -69,7 +71,7 @@ void player_consume_life(player_t *player, server_t *srv)
                 
             // Notify GUI of inventory change
             char msg[256];
-            snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
+            snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d\n",
                 player->id, player->x, player->y, player->inventory[0], 
                 player->inventory[1], player->inventory[2], player->inventory[3], 
                 player->inventory[4], player->inventory[5], player->inventory[6]);
@@ -183,12 +185,17 @@ int player_drop_resource(player_t *player, tile_t *tile, resource_t res)
 
 bool player_can_see_tile(player_t *player, int tile_x, int tile_y)
 {
-    // Simple vision calculation - can be improved
-    int dx = abs(tile_x - player->x);
-    int dy = abs(tile_y - player->y);
+    // Vision calculation based on player level and orientation
+    int dx = tile_x - player->x;
+    int dy = tile_y - player->y;
     int vision_range = player->level;
     
-    return (dx <= vision_range && dy <= vision_range);
+    // Basic vision range check
+    if (abs(dx) > vision_range || abs(dy) > vision_range) {
+        return false;
+    }
+    
+    return true;
 }
 
 void player_reset_action(player_t *player)
@@ -238,4 +245,109 @@ player_t **player_get_at_position(server_t *srv, int x, int y, int *count)
     }
     
     return players;
+}
+
+int player_get_vision_tiles(player_t *player, server_t *srv, int **tiles_x, int **tiles_y)
+{
+    int vision_range = player->level;
+    int max_tiles = (2 * vision_range + 1) * (2 * vision_range + 1);
+    
+    *tiles_x = malloc(sizeof(int) * max_tiles);
+    *tiles_y = malloc(sizeof(int) * max_tiles);
+    
+    if (!*tiles_x || !*tiles_y) {
+        free(*tiles_x);
+        free(*tiles_y);
+        return 0;
+    }
+    
+    int count = 0;
+    
+    // Generate vision tiles based on level and orientation
+    for (int row = 0; row <= vision_range; row++) {
+        int tiles_in_row = 2 * row + 1;
+        int start_offset = -row;
+        
+        for (int col = 0; col < tiles_in_row; col++) {
+            int dx = 0, dy = 0;
+            int offset = start_offset + col;
+            
+            switch (player->orientation) {
+                case NORTH:
+                    dx = offset;
+                    dy = -row;
+                    break;
+                case SOUTH:
+                    dx = -offset;
+                    dy = row;
+                    break;
+                case EAST:
+                    dx = row;
+                    dy = offset;
+                    break;
+                case WEST:
+                    dx = -row;
+                    dy = -offset;
+                    break;
+            }
+            
+            int real_x = (player->x + dx + srv->width) % srv->width;
+            int real_y = (player->y + dy + srv->height) % srv->height;
+            
+            (*tiles_x)[count] = real_x;
+            (*tiles_y)[count] = real_y;
+            count++;
+        }
+    }
+    
+    return count;
+}
+
+bool player_has_resource(player_t *player, resource_t res, int amount)
+{
+    if (res < 0 || res >= MAX_INVENTORY) return false;
+    return player->inventory[res] >= amount;
+}
+
+bool player_has_enough_resources_for_elevation(player_t *player)
+{
+    // Elevation requirements table [level-1][resource_index]
+    static const int requirements[8][7] = {
+        {0, 0, 0, 0, 0, 0, 0}, // level 0 (unused)
+        {1, 1, 0, 0, 0, 0, 0}, // level 1->2
+        {2, 1, 1, 1, 0, 0, 0}, // level 2->3
+        {2, 2, 0, 1, 0, 2, 0}, // level 3->4
+        {4, 1, 1, 2, 0, 1, 0}, // level 4->5
+        {4, 1, 2, 1, 3, 0, 0}, // level 5->6
+        {6, 1, 2, 3, 0, 1, 0}, // level 6->7
+        {6, 2, 2, 2, 2, 2, 1}  // level 7->8
+    };
+    
+    if (player->level < 1 || player->level > 7) return false;
+    
+    // Check resource requirements (skip player count which is index 0)
+    for (int i = 1; i < 7; i++) {
+        if (player->inventory[i] < requirements[player->level][i]) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+void player_print_status(player_t *player)
+{
+    if (!player) return;
+    
+    log_info("=== Player #%d Status ===", player->id);
+    log_info("Position: (%d, %d)", player->x, player->y);
+    log_info("Orientation: %d", player->orientation);
+    log_info("Level: %d", player->level);
+    log_info("Life units: %d", player->life_units);
+    log_info("Alive: %s", player->alive ? "yes" : "no");
+    log_info("Incanting: %s", player->is_incanting ? "yes" : "no");
+    log_info("Inventory: food=%d, linemate=%d, deraumere=%d, sibur=%d, mendiane=%d, phiras=%d, thystame=%d",
+        player->inventory[0], player->inventory[1], player->inventory[2],
+        player->inventory[3], player->inventory[4], player->inventory[5], player->inventory[6]);
+    log_info("=========================");
 }

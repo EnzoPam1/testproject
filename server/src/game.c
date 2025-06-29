@@ -2,7 +2,7 @@
 ** EPITECH PROJECT, 2025
 ** zappy_server
 ** File description:
-** Game logic implementation - Fixed for AI compatibility
+** Game logic implementation - Improved version
 */
 
 #include "game.h"
@@ -29,27 +29,31 @@ static const char* RESOURCE_NAMES[] = {
     "food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"
 };
 
-// Elevation requirements table [level][requirement_type]
-// requirement_type: 0=players, 1=linemate, 2=deraumere, 3=sibur, 4=mendiane, 5=phiras, 6=thystame
-static const int ELEVATION_REQUIREMENTS[8][7] = {
-    {0, 0, 0, 0, 0, 0, 0}, // level 0 (unused)
-    {1, 1, 0, 0, 0, 0, 0}, // level 1->2
-    {2, 1, 1, 1, 0, 0, 0}, // level 2->3
-    {2, 2, 0, 1, 0, 2, 0}, // level 3->4
-    {4, 1, 1, 2, 0, 1, 0}, // level 4->5
-    {4, 1, 2, 1, 3, 0, 0}, // level 5->6
-    {6, 1, 2, 3, 0, 1, 0}, // level 6->7
-    {6, 2, 2, 2, 2, 2, 1}  // level 7->8
-};
-
 static void distribute_resources_evenly(tile_t **map, int width, int height, int resource_type, int total_count)
 {
     if (total_count <= 0) return;
     
-    int total_tiles = width * height;
+    // Use a more even distribution algorithm
     int resources_placed = 0;
     
-    // Distribute resources randomly but evenly
+    // First pass: place one resource per "resource_density" tiles
+    int total_tiles = width * height;
+    int interval = total_tiles / total_count;
+    if (interval < 1) interval = 1;
+    
+    for (int i = 0; i < total_tiles && resources_placed < total_count; i += interval) {
+        int x = (i % width);
+        int y = (i / width) % height;
+        
+        if (resource_type == 0) {
+            map[y][x].food++;
+        } else {
+            map[y][x].stones[resource_type - 1]++;
+        }
+        resources_placed++;
+    }
+    
+    // Second pass: distribute remaining resources randomly
     while (resources_placed < total_count) {
         int x = rand() % width;
         int y = rand() % height;
@@ -69,7 +73,7 @@ static void distribute_resources(tile_t **map, int width, int height)
 
     for (int res = 0; res < 7; res++) {
         int count = (int)(total_tiles * RESOURCE_DENSITY[res]);
-        if (count < 1) count = 1; // Ensure at least one of each resource
+        if (count < 1) count = 1;
 
         log_info("Distributing %d %s across the map", count, RESOURCE_NAMES[res]);
         distribute_resources_evenly(map, width, height, res, count);
@@ -78,7 +82,7 @@ static void distribute_resources(tile_t **map, int width, int height)
 
 tile_t **game_map_init(int width, int height, float density[])
 {
-    (void)density; // unused parameter - we use our own density values
+    (void)density; // unused parameter
     
     tile_t **map = malloc(sizeof(tile_t*) * height);
     if (!map) {
@@ -108,23 +112,6 @@ void game_map_free(tile_t **map, int height)
     free(map);
 }
 
-int game_get_total_resource_count(server_t *srv, int resource_type)
-{
-    int total = 0;
-    
-    for (int y = 0; y < srv->height; y++) {
-        for (int x = 0; x < srv->width; x++) {
-            if (resource_type == 0) {
-                total += srv->map[y][x].food;
-            } else if (resource_type >= 1 && resource_type <= 6) {
-                total += srv->map[y][x].stones[resource_type - 1];
-            }
-        }
-    }
-    
-    return total;
-}
-
 static void respawn_resources(server_t *srv)
 {
     static int last_respawn_tick = 0;
@@ -132,19 +119,7 @@ static void respawn_resources(server_t *srv)
     
     if (srv->tick_count - last_respawn_tick >= respawn_interval) {
         log_info("Respawning resources (tick %d)", srv->tick_count);
-        
-        // Add more resources to maintain density
-        int total_tiles = srv->width * srv->height;
-        for (int res = 0; res < 7; res++) {
-            int current_count = game_get_total_resource_count(srv, res);
-            int target_count = (int)(total_tiles * RESOURCE_DENSITY[res]);
-            int to_add = target_count - current_count;
-            
-            if (to_add > 0) {
-                distribute_resources_evenly(srv->map, srv->width, srv->height, res, to_add);
-            }
-        }
-        
+        distribute_resources(srv->map, srv->width, srv->height);
         last_respawn_tick = srv->tick_count;
         
         // Notify GUI of map changes
@@ -167,6 +142,19 @@ int check_elevation_requirements(server_t *srv, int x, int y, int level)
     
     tile_t *tile = &srv->map[y][x];
     
+    // Elevation requirements table [level][resource_index]
+    // resource_index: 0=players, 1=linemate, 2=deraumere, 3=sibur, 4=mendiane, 5=phiras, 6=thystame
+    static const int requirements[8][7] = {
+        {0, 0, 0, 0, 0, 0, 0}, // level 0 (unused)
+        {1, 1, 0, 0, 0, 0, 0}, // level 1->2
+        {2, 1, 1, 1, 0, 0, 0}, // level 2->3
+        {2, 2, 0, 1, 0, 2, 0}, // level 3->4
+        {4, 1, 1, 2, 0, 1, 0}, // level 4->5
+        {4, 1, 2, 1, 3, 0, 0}, // level 5->6
+        {6, 1, 2, 3, 0, 1, 0}, // level 6->7
+        {6, 2, 2, 2, 2, 2, 1}  // level 7->8
+    };
+
     // Count players of the same level at this position
     int player_count = 0;
     for (int i = 0; i < srv->player_count; i++) {
@@ -177,25 +165,19 @@ int check_elevation_requirements(server_t *srv, int x, int y, int level)
     }
 
     // Check player requirement
-    if (player_count < ELEVATION_REQUIREMENTS[level][0]) {
-        log_info("Elevation check failed: need %d players, have %d", 
-            ELEVATION_REQUIREMENTS[level][0], player_count);
+    if (player_count < requirements[level][0]) {
         return 0;
     }
 
     // Check resource requirements
-    const char *res_names[] = {"linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"};
     for (int i = 1; i < 7; i++) {
         int available = tile->stones[i - 1];
-        int needed = ELEVATION_REQUIREMENTS[level][i];
+        int needed = requirements[level][i];
         if (available < needed) {
-            log_info("Elevation check failed: need %d %s, have %d", 
-                needed, res_names[i-1], available);
             return 0;
         }
     }
 
-    log_info("Elevation requirements met for level %d at (%d,%d)", level, x, y);
     return 1;
 }
 
@@ -205,11 +187,22 @@ void perform_elevation(server_t *srv, int x, int y, int level)
     
     tile_t *tile = &srv->map[y][x];
     
-    // Consume resources according to requirements
-    for (int i = 1; i < 7; i++) {
-        int to_consume = ELEVATION_REQUIREMENTS[level][i];
-        tile->stones[i - 1] -= to_consume;
-        if (tile->stones[i - 1] < 0) tile->stones[i - 1] = 0;
+    // Resource requirements for elevation
+    static const int requirements[8][6] = {
+        {0, 0, 0, 0, 0, 0}, // level 0 (unused)
+        {1, 0, 0, 0, 0, 0}, // level 1->2
+        {1, 1, 1, 0, 0, 0}, // level 2->3
+        {2, 0, 1, 0, 2, 0}, // level 3->4
+        {1, 1, 2, 0, 1, 0}, // level 4->5
+        {1, 2, 1, 3, 0, 0}, // level 5->6
+        {1, 2, 3, 0, 1, 0}, // level 6->7
+        {2, 2, 2, 2, 2, 1}  // level 7->8
+    };
+
+    // Consume resources
+    for (int i = 0; i < 6; i++) {
+        tile->stones[i] -= requirements[level][i];
+        if (tile->stones[i] < 0) tile->stones[i] = 0;
     }
 
     // Elevate all eligible players
@@ -379,6 +372,23 @@ void game_tick(server_t *srv)
         }
         log_info("Game tick %d: %d players alive", srv->tick_count, alive_count);
     }
+}
+
+int game_get_total_resource_count(server_t *srv, int resource_type)
+{
+    int total = 0;
+    
+    for (int y = 0; y < srv->height; y++) {
+        for (int x = 0; x < srv->width; x++) {
+            if (resource_type == 0) {
+                total += srv->map[y][x].food;
+            } else if (resource_type >= 1 && resource_type <= 6) {
+                total += srv->map[y][x].stones[resource_type - 1];
+            }
+        }
+    }
+    
+    return total;
 }
 
 void game_print_statistics(server_t *srv)
