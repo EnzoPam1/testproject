@@ -46,7 +46,7 @@ static void sendf(int fd, const char *fmt, ...)
     send(fd, buf, strlen(buf), 0);
 }
 
-static void generate_look_response(server_t *srv, player_t *player, char *response)
+static void __attribute__((unused)) generate_look_response(server_t *srv, player_t *player, char *response)
 {
     char tile_content[512];
     int vision_size = player->level + 1;

@@ -190,13 +190,14 @@ void remove_action(player_t *player, int index)
     memset(&player->actions[player->action_count], 0, sizeof(pending_action_t));
 }
 
-// Remplacer les anciennes fonctions par des wrappers
-int is_action_ready(player_t *player, int freq)
-{
-    return get_ready_action(player, freq) != NULL;
-}
-
+// Fonction wrapper pour compatibilité
 void start_action(player_t *player, const char *action, int duration)
 {
     add_action(player, action, duration);
+}
+
+// Fonction wrapper pour compatibilité
+int is_action_ready(player_t *player, int freq)
+{
+    return get_ready_action(player, freq) != NULL;
 }

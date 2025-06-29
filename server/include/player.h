@@ -72,3 +72,7 @@ int player_drop_resource(player_t *player, tile_t *tile, resource_t res);
 void add_action(player_t *player, const char *action, int duration);
 pending_action_t *get_ready_action(player_t *player, int freq);
 void remove_action(player_t *player, int index);
+
+// Fonctions wrapper pour compatibilité
+void start_action(player_t *player, const char *action, int duration);
+int is_action_ready(player_t *player, int freq);

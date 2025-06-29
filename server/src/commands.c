@@ -104,7 +104,7 @@ static void generate_look_response(server_t *srv, player_t *player, char *respon
     strcat(response, "]\n");
 }
 
-static int calculate_sound_direction(server_t *srv, player_t *sender,
+static int __attribute__((unused)) calculate_sound_direction(server_t *srv, player_t *sender,
     player_t *receiver)
 {
     int dx = sender->x - receiver->x;
@@ -143,6 +143,7 @@ static player_t *find_player_by_client(server_t *srv, client_t *cl) {
 // COMMANDES AI
 
 static void cmd_forward(server_t *srv, client_t *cl, player_t *player) {
+    (void)srv; (void)cl; // Supprimer warnings
     // Pas de vérification pending_action - on peut avoir plusieurs actions en file
     start_action(player, "forward_end", 7);
     log_info("Forward scheduled for player %d (7/f seconds)", player->id);
@@ -150,11 +151,13 @@ static void cmd_forward(server_t *srv, client_t *cl, player_t *player) {
 }
 
 static void cmd_right(server_t *srv, client_t *cl, player_t *player) {
+    (void)srv; (void)cl; // Supprimer warnings
     start_action(player, "right_end", 7);
     log_info("Right scheduled for player %d (7/f seconds)", player->id);
 }
 
 static void cmd_left(server_t *srv, client_t *cl, player_t *player) {
+    (void)srv; (void)cl; // Supprimer warnings
     start_action(player, "left_end", 7);
     log_info("Left scheduled for player %d (7/f seconds)", player->id);
 }
@@ -168,6 +171,7 @@ static void cmd_look(server_t *srv, client_t *cl, player_t *player) {
 }
 
 static void cmd_inventory(server_t *srv, client_t *cl, player_t *player) {
+    (void)srv; // Supprimer warning
     char response[512];
     snprintf(response, sizeof(response),
         "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]\n",
@@ -185,6 +189,7 @@ static void cmd_connect_nbr(server_t *srv, client_t *cl, player_t *player) {
 
 // COMMANDES ASYNCHRONES
 static void cmd_take(server_t *srv, client_t *cl, player_t *player, const char *object) {
+    (void)srv; // Supprimer warning
     resource_t res = resource_from_name(object);
     if (res < 0) { 
         send_response(cl->socket_fd, "ko\n"); 
@@ -198,6 +203,7 @@ static void cmd_take(server_t *srv, client_t *cl, player_t *player, const char *
 }
 
 static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *object) {
+    (void)srv; // Supprimer warning
     resource_t res = resource_from_name(object);
     if (res < 0) { 
         send_response(cl->socket_fd, "ko\n"); 
@@ -211,6 +217,7 @@ static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *o
 }
 
 static void cmd_broadcast(server_t *srv, client_t *cl, player_t *player, const char *message) {
+    (void)srv; (void)cl; // Supprimer warnings
     char action[512];
     snprintf(action, sizeof(action), "broadcast_end %s", message);
     start_action(player, action, 7);
@@ -218,11 +225,13 @@ static void cmd_broadcast(server_t *srv, client_t *cl, player_t *player, const c
 }
 
 static void cmd_fork(server_t *srv, client_t *cl, player_t *player) {
+    (void)srv; (void)cl; // Supprimer warnings
     start_action(player, "fork_end", 42);
     log_info("Fork scheduled for player %d (42/f seconds)", player->id);
 }
 
 static void cmd_eject(server_t *srv, client_t *cl, player_t *player) {
+    (void)srv; (void)cl; // Supprimer warnings
     start_action(player, "eject_end", 7);
     log_info("Eject scheduled for player %d (7/f seconds)", player->id);
 }
