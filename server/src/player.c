@@ -12,7 +12,6 @@
 #include "server.h"
 #include "game.h"
 #include "utils.h"
-#include "actions.h"
 
 player_t *player_create(int client_idx, int team_idx, int x, int y)
 {
@@ -33,8 +32,8 @@ player_t *player_create(int client_idx, int team_idx, int x, int y)
     memset(player->inventory, 0, sizeof(player->inventory));
     player->inventory[RES_FOOD] = 9;
     player->is_incanting = 0;
-    player->action_count = 0;
-    memset(player->actions, 0, sizeof(player->actions));
+    player->action_end_time = 0;
+    player->pending_action[0] = '\0';
     log_info("Player #%d created at (%d, %d), team %d",
         player->id, x, y, team_idx);
     return player;
@@ -49,41 +48,19 @@ void player_destroy(player_t *player)
 
 void player_consume_life(player_t *player, server_t *srv)
 {
-    static clock_t last_consumption_check = 0;
-    clock_t now = clock();
-    
     if (player->alive == false)
         return;
-    
-    // Vérifie la consommation toutes les secondes (CLOCKS_PER_SEC)
-    if ((now - last_consumption_check) >= CLOCKS_PER_SEC) {
-        last_consumption_check = now;
-        
-        player->life_units--;
-        if (player->life_units <= 0) {
-            if (player->inventory[RES_FOOD] > 0) {
-                player->inventory[RES_FOOD]--;
-                player->life_units = LIFE_UNIT_DURATION;
-                log_info("Player #%d consumes 1 food, %d left",
-                    player->id, player->inventory[RES_FOOD]);
-                
-                // Notifier le GUI du changement d'inventaire
-                char msg[256];
-                snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
-                    player->id, player->x, player->y, player->inventory[0], 
-                    player->inventory[1], player->inventory[2], player->inventory[3], 
-                    player->inventory[4], player->inventory[5], player->inventory[6]);
-                broadcast_to_gui(srv, msg);
-            } else {
-                player->life_units = 0;
-                log_info("Player #%d dies of starvation", player->id);
-                player->alive = false;
-                
-                // Notifier le GUI de la mort
-                char msg[256];
-                snprintf(msg, sizeof(msg), "pdi #%d\n", player->id);
-                broadcast_to_gui(srv, msg);
-            }
+    player->life_units--;
+    if (player->life_units <= 0) {
+        if (player->inventory[RES_FOOD] > 0) {
+            player->inventory[RES_FOOD]--;
+            player->life_units += LIFE_UNIT_DURATION;
+            log_info("Player #%d consumes 1 food, %d left",
+                player->id, player->inventory[RES_FOOD]);
+        } else {
+            player->life_units = 0;
+            log_info("Player #%d dies of starvation", player->id);
+            player->alive = false;
         }
     }
 }
@@ -143,61 +120,4 @@ int player_drop_resource(player_t *player, tile_t *tile, resource_t res)
         return 1;
     }
     return 0;
-}
-
-// Nouvelles fonctions pour gestion de file d'actions
-void add_action(player_t *player, const char *action, int duration)
-{
-    if (player->action_count >= MAX_PENDING_ACTIONS) {
-        log_info("Player #%d action queue full, dropping action", player->id);
-        return;
-    }
-    
-    player->actions[player->action_count].start_time = clock();
-    player->actions[player->action_count].duration = duration;
-    strcpy(player->actions[player->action_count].action, action);
-    player->action_count++;
-}
-
-pending_action_t *get_ready_action(player_t *player, int freq)
-{
-    if (player->action_count == 0)
-        return NULL;
-    
-    // Toujours vérifier la première action (FIFO)
-    pending_action_t *action = &player->actions[0];
-    clock_t now = clock();
-    double elapsed = (double)(now - action->start_time) / CLOCKS_PER_SEC;
-    double action_time = (double)action->duration / freq;
-    
-    if (elapsed >= action_time)
-        return action;
-    
-    return NULL;
-}
-
-void remove_action(player_t *player, int index)
-{
-    if (index < 0 || index >= player->action_count)
-        return;
-    
-    // Décaler toutes les actions suivantes
-    for (int i = index; i < player->action_count - 1; i++) {
-        player->actions[i] = player->actions[i + 1];
-    }
-    
-    player->action_count--;
-    memset(&player->actions[player->action_count], 0, sizeof(pending_action_t));
-}
-
-// Fonction wrapper pour compatibilité
-void start_action(player_t *player, const char *action, int duration)
-{
-    add_action(player, action, duration);
-}
-
-// Fonction wrapper pour compatibilité
-int is_action_ready(player_t *player, int freq)
-{
-    return get_ready_action(player, freq) != NULL;
 }

@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <iostream>
+#include <errno.h>
 
 Network::Network() {
 }
@@ -15,6 +16,11 @@ Network::~Network() {
 bool Network::Connect(const std::string& host, int port) {
     m_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (m_socket < 0) return false;
+    
+    struct timeval timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_usec = 0;
+    setsockopt(m_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
     
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
@@ -38,6 +44,7 @@ void Network::Disconnect() {
     m_connected = false;
     
     if (m_socket >= 0) {
+        shutdown(m_socket, SHUT_RDWR);
         close(m_socket);
         m_socket = -1;
     }
@@ -68,7 +75,16 @@ void Network::ReceiveLoop() {
     
     while (m_running && m_connected) {
         int n = recv(m_socket, buffer, sizeof(buffer) - 1, 0);
-        if (n <= 0) break;
+        if (n <= 0) {
+            if (n == 0) {
+                std::cout << "Server disconnected" << std::endl;
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+            } else {
+                std::cerr << "Network error: " << strerror(errno) << std::endl;
+            }
+            break;
+        }
         
         buffer[n] = '\0';
         m_buffer += buffer;
@@ -79,6 +95,8 @@ void Network::ReceiveLoop() {
             m_messageQueue.push(line);
         }
     }
+    
+    m_connected = false;
 }
 
 bool Network::ReadLine(std::string& line) {

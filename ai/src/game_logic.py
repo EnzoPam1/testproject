@@ -329,31 +329,14 @@ class GameLogic:
 
     def update_inventory(self, inventory_list):
         """Update player inventory and return if changed."""
-        print(f"[DEBUG LOGIC] Updating inventory with: {inventory_list}")
-        try:
-            changed = False
-            for item in inventory_list:
-                if len(item) >= 2:
-                    resource_name = item[0]
-                    try:
-                        amount = int(item[1])
-                        old_amount = self.inventory.get_resource(resource_name)
-                        if old_amount != amount:
-                            changed = True
-                            print(f"[DEBUG LOGIC] {resource_name}: {old_amount} -> {amount}")
-                        self.inventory.set_resource(resource_name, amount)
-                    except (ValueError, IndexError) as e:
-                        print(f"[ERROR] Failed to parse inventory item {item}: {e}")
-                else:
-                    print(f"[WARNING] Malformed inventory item: {item}")
-            
-            if changed:
-                print(f"[DEBUG LOGIC] Inventory updated, broadcasting to team")
-                self.team_inventories[self.player_id - 1].set_from_list(inventory_list)
-            return changed
-        except Exception as e:
-            print(f"[ERROR] Exception updating inventory: {e}")
-            return False
+        changed = False
+        for item in inventory_list:
+            if self.inventory.get_resource(item[0]) != int(item[1]):
+                changed = True
+            self.inventory.set_resource(item[0], int(item[1]))
+        
+        self.team_inventories[self.player_id - 1].set_from_list(inventory_list)
+        return changed
 
     def update_team_inventory(self, inventory_list):
         """Update team member inventory."""
@@ -401,101 +384,53 @@ class GameLogic:
 
     def process_broadcast_messages(self, messages: List[str]):
         """Process received broadcast messages."""
-        print(f"[DEBUG LOGIC] Processing {len(messages)} broadcast messages")
-        
         for message in messages:
-            try:
-                print(f"[DEBUG LOGIC] Processing broadcast: '{message}'")
+            direction = message.split(", ")[0]
+            content = message.split(", ")[1].split("\n")[0]
+            decrypted = self.decrypt_message(content)
+            
+            if decrypted == "error":
+                continue
+            
+            sender_id = int(decrypted.split("|", 1)[0])
+            message_content = decrypted.split("|", 1)[1]
+            
+            if "ready" in message_content:
+                self.enough_players = True
+                if self.player_id == 0:
+                    self.player_id = 1
+            
+            if "here" in message_content:
+                self.player_id += 1
+                if self.player_id == 6:
+                    ready_msg = self.encrypt_message("ready")
+                    self.command_queue.append(f"Broadcast {ready_msg}")
+            
+            if "inventory" in message_content:
+                inventory_str = message_content.split("|")[1]
+                parsed_inventory = GameUtils.parse_string_to_list(inventory_str)
+                self.team_inventories[sender_id - 1].set_from_list(parsed_inventory)
+                self.calculate_total_inventory()
+            
+            if "finished" in message_content:
+                self.is_elevating = False
+            
+            if "elevation" in message_content and not self.movement_done:
+                self.command_queue = []
+                self.is_elevating = True
+                direction_num = int(direction)
                 
-                if ", " not in message:
-                    print(f"[WARNING] Malformed broadcast message: '{message}'")
-                    continue
-                    
-                direction = message.split(", ")[0]
-                content = message.split(", ")[1].split("\n")[0]
-                
-                print(f"[DEBUG LOGIC] Direction: {direction}, Content: '{content}'")
-                
-                try:
-                    decrypted = self.decrypt_message(content)
-                    print(f"[DEBUG LOGIC] Decrypted: '{decrypted}'")
-                except:
-                    print(f"[DEBUG LOGIC] Failed to decrypt or not for us: '{content}'")
-                    continue
-                
-                if decrypted == "error":
-                    print(f"[DEBUG LOGIC] Decryption failed")
-                    continue
-                
-                if "|" not in decrypted:
-                    print(f"[WARNING] Malformed decrypted message: '{decrypted}'")
-                    continue
-                    
-                sender_id_str = decrypted.split("|", 1)[0]
-                message_content = decrypted.split("|", 1)[1]
-                
-                try:
-                    sender_id = int(sender_id_str)
-                    print(f"[DEBUG LOGIC] Sender ID: {sender_id}, Message: '{message_content}'")
-                except ValueError:
-                    print(f"[ERROR] Invalid sender ID: '{sender_id_str}'")
-                    continue
-                
-                if "ready" in message_content:
-                    print(f"[DEBUG LOGIC] Team ready signal received")
-                    self.enough_players = True
-                    if self.player_id == 0:
-                        self.player_id = 1
-                
-                if "here" in message_content:
-                    print(f"[DEBUG LOGIC] Player here signal received")
-                    self.player_id += 1
-                    if self.player_id == 6:
-                        ready_msg = self.encrypt_message("ready")
-                        self.command_queue.append(f"Broadcast {ready_msg}")
-                        print(f"[DEBUG LOGIC] Broadcasting ready signal")
-                
-                if "inventory" in message_content:
-                    print(f"[DEBUG LOGIC] Team inventory update received")
-                    try:
-                        inventory_str = message_content.split("|")[1]
-                        parsed_inventory = GameUtils.parse_string_to_list(inventory_str)
-                        self.team_inventories[sender_id - 1].set_from_list(parsed_inventory)
-                        self.calculate_total_inventory()
-                    except Exception as e:
-                        print(f"[ERROR] Failed to process team inventory: {e}")
-                
-                if "finished" in message_content:
-                    print(f"[DEBUG LOGIC] Elevation finished signal received")
-                    self.is_elevating = False
-                
-                if "elevation" in message_content and not self.movement_done:
-                    print(f"[DEBUG LOGIC] Elevation signal received, moving to position")
-                    self.command_queue = []
-                    self.is_elevating = True
-                    
-                    try:
-                        direction_num = int(direction)
-                        print(f"[DEBUG LOGIC] Moving in direction: {direction_num}")
-                        
-                        # Move based on broadcast direction
-                        if direction_num == 1:
-                            self.command_queue.append("Forward")
-                        elif direction_num == 5:
-                            self.command_queue.extend(["Left", "Left", "Forward"])
-                        elif direction_num in [2, 3, 4]:
-                            self.command_queue.extend(["Left", "Forward"])
-                        elif direction_num in [6, 7, 8]:
-                            self.command_queue.extend(["Right", "Forward"])
-                        elif direction_num == 0:
-                            self.drop_elevation_resources()
-                    except ValueError:
-                        print(f"[ERROR] Invalid direction number: '{direction}'")
-                    
-            except Exception as e:
-                print(f"[ERROR] Exception processing broadcast '{message}': {e}")
-                import traceback
-                traceback.print_exc()
+                # Move based on broadcast direction
+                if direction_num == 1:
+                    self.command_queue.append("Forward")
+                elif direction_num == 5:
+                    self.command_queue.extend(["Left", "Left", "Forward"])
+                elif direction_num in [2, 3, 4]:
+                    self.command_queue.extend(["Left", "Forward"])
+                elif direction_num in [6, 7, 8]:
+                    self.command_queue.extend(["Right", "Forward"])
+                elif direction_num == 0:
+                    self.drop_elevation_resources()
 
     def drop_elevation_resources(self):
         """Drop resources needed for elevation."""
@@ -511,88 +446,26 @@ class GameLogic:
             resource_index += 1
 
     def process_command_responses(self, responses: List[str]):
-        """Process responses from sent commands with error protection."""
-        print(f"[DEBUG LOGIC] Processing {len(responses)} responses: {responses}")
-        
+        """Process responses from sent commands."""
         for response in responses:
-            try:
-                print(f"[DEBUG LOGIC] Processing response: '{response}'")
-                command_parts = response.split("|")
-                if len(command_parts) < 2:
-                    print(f"[WARNING] Malformed response: '{response}'")
-                    continue
-                    
-                command = command_parts[0]
-                result = command_parts[1] if len(command_parts) > 1 else ""
-                print(f"[DEBUG LOGIC] Command: '{command}', Result: '{result}'")
-                
-                if command == "Connect_nbr":
-                    try:
-                        self.available_slots = int(result)
-                        print(f"[DEBUG LOGIC] Available slots: {self.available_slots}")
-                    except ValueError as e:
-                        print(f"[ERROR] Failed to parse Connect_nbr result '{result}': {e}")
-                        
-                elif command == "Look":
-                    try:
-                        print(f"[DEBUG LOGIC] Parsing vision data: '{result}'")
-                        self.vision_data = GameUtils.parse_string_to_list(result)
-                        print(f"[DEBUG LOGIC] Vision data parsed: {self.vision_data}")
-                    except Exception as e:
-                        print(f"[ERROR] Failed to parse Look result '{result}': {e}")
-                        
-                elif command == "Inventory":
-                    try:
-                        print(f"[DEBUG LOGIC] Parsing inventory data: '{result}'")
-                        self.inventory_data = GameUtils.parse_string_to_list(result)
-                        print(f"[DEBUG LOGIC] Inventory data parsed: {self.inventory_data}")
-                    except Exception as e:
-                        print(f"[ERROR] Failed to parse Inventory result '{result}': {e}")
-                        
-                elif command == "Incantation":
-                    print(f"[DEBUG LOGIC] Incantation response: '{result}'")
-                    self.is_elevating = False
-                    if "Current level:" in result:
-                        try:
-                            level_part = result.split(":")[1].strip()
-                            self.level = int(level_part)
-                            print(f"[DEBUG LOGIC] New level: {self.level}")
-                        except (IndexError, ValueError) as e:
-                            print(f"[ERROR] Failed to parse level from '{result}': {e}")
-                            
-                    finished_msg = self.encrypt_message("finished")
-                    self.command_queue.append(f"Broadcast {finished_msg}")
-                    
-                elif command in ["Forward", "Right", "Left"]:
-                    print(f"[DEBUG LOGIC] Movement command completed: {command}")
-                    if result == "ok":
-                        self.movement_done = True
-                    else:
-                        print(f"[WARNING] Movement failed: {command} -> {result}")
-                        
-                elif command in ["Take", "Set"]:
-                    print(f"[DEBUG LOGIC] Resource command completed: {command}")
-                    if result == "ok":
-                        print(f"[DEBUG LOGIC] {command} successful")
-                    else:
-                        print(f"[DEBUG LOGIC] {command} failed")
-                        
-                elif command == "Broadcast":
-                    print(f"[DEBUG LOGIC] Broadcast completed: {result}")
-                    
-                elif command == "Fork":
-                    print(f"[DEBUG LOGIC] Fork completed: {result}")
-                    
-                elif command == "Eject":
-                    print(f"[DEBUG LOGIC] Eject completed: {result}")
-                    
-                else:
-                    print(f"[WARNING] Unknown command response: '{command}' -> '{result}'")
-                    
-            except Exception as e:
-                print(f"[ERROR] Exception processing response '{response}': {e}")
-                import traceback
-                traceback.print_exc()
+            command_parts = response.split("|")
+            command = command_parts[0]
+            result = command_parts[1] if len(command_parts) > 1 else ""
+            
+            if command == "Connect_nbr":
+                self.available_slots = int(result)
+            elif command == "Look":
+                self.vision_data = GameUtils.parse_string_to_list(result)
+            elif command == "Inventory":
+                self.inventory_data = GameUtils.parse_string_to_list(result)
+            elif command == "Incantation":
+                self.is_elevating = False
+                if len(result.split(":")) == 2:
+                    self.level = int(result.split(":")[1])
+                finished_msg = self.encrypt_message("finished")
+                self.command_queue.append(f"Broadcast {finished_msg}")
+            elif command in ["Forward", "Right", "Left"]:
+                self.movement_done = True
 
     def initialize_player(self):
         """Initialize player on first turn."""

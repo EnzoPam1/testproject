@@ -22,7 +22,8 @@ SRC = src/main.cpp \
       src/Tile.cpp \
       src/UI.cpp \
       src/Network.cpp \
-      src/ResourceManager.cpp
+      src/ResourceManager.cpp \
+			src/LoginScreen.cpp \
 
 OBJ = $(SRC:.cpp=.o)
 

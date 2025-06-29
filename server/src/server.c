@@ -11,7 +11,6 @@
 #include "utils.h"
 #include "client.h"
 #include "player.h"
-#include "actions.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -151,9 +150,6 @@ void server_run(server_t *srv)
             if (fds[i].revents & POLLIN)
                 network_handle_client_io(srv, srv->clients[i - 1]);
         }
-        
-        // IMPORTANT : Exécuter les actions en attente pour TOUS les joueurs
-        execute_pending_actions(srv);
     }
 }
 
