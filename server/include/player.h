@@ -2,7 +2,7 @@
 ** EPITECH PROJECT, 2025
 ** zappy_server
 ** File description:
-** Player structure and functions
+** Player structure and functions - Fixed for AI compatibility
 */
 
 #pragma once
@@ -51,10 +51,27 @@ typedef struct s_player {
     char pending_action[256];
 } player_t;
 
+// Player creation and destruction
 player_t *player_create(int client_idx, int team_idx, int x, int y);
 void player_destroy(player_t *player);
+
+// Player life management
 void player_consume_life(player_t *player, server_t *srv);
+
+// Player movement
 void player_turn(player_t *player, int direction);
 void player_move_forward(player_t *player, server_t *srv);
+
+// Resource management
 int player_take_resource(player_t *player, tile_t *tile, resource_t res);
 int player_drop_resource(player_t *player, tile_t *tile, resource_t res);
+
+// Vision and positioning
+bool player_can_see_tile(player_t *player, int tile_x, int tile_y);
+int player_count_at_position(server_t *srv, int x, int y, int level);
+player_t **player_get_at_position(server_t *srv, int x, int y, int *count);
+
+// Action management
+void player_reset_action(player_t *player);
+bool player_is_busy(player_t *player);
+void player_set_action(player_t *player, const char *action, int duration);

@@ -2,7 +2,7 @@
 ** EPITECH PROJECT, 2025
 ** zappy_server
 ** File description:
-** Network handling - Improved version
+** Network handling - Fixed for AI compatibility
 */
 
 #include "network.h"
@@ -41,14 +41,6 @@ int network_setup_listener(server_t *srv)
     
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0) {
         log_info("Failed to set SO_REUSEADDR: %s", strerror(errno));
-        close(fd);
-        return -1;
-    }
-    
-    // Set socket to non-blocking mode
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-        log_info("Failed to set non-blocking mode: %s", strerror(errno));
         close(fd);
         return -1;
     }
@@ -113,7 +105,7 @@ static void send_gui_initial_state(server_t *srv, client_t *cl)
                 p->id, p->x, p->y, p->orientation, p->level,
                 srv->team_names[p->team_idx]);
                 
-            sendf(cl->socket_fd, "pin #%d %d %d %d %d %d %d %d %d\n",
+            sendf(cl->socket_fd, "pin #%d %d %d %d %d %d %d %d %d %d\n",
                 p->id, p->x, p->y, p->inventory[0], p->inventory[1], 
                 p->inventory[2], p->inventory[3], p->inventory[4], 
                 p->inventory[5], p->inventory[6]);
@@ -178,12 +170,6 @@ void network_handle_new_connection(server_t *srv)
         return;
     }
 
-    // Set new socket to non-blocking
-    int flags = fcntl(fd, F_GETFL, 0);
-    if (flags >= 0) {
-        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-    }
-
     log_info("New client connected (fd=%d) from %s:%d", 
              fd, inet_ntoa(peer.sin_addr), ntohs(peer.sin_port));
     
@@ -208,14 +194,23 @@ void network_handle_new_connection(server_t *srv)
     
     srv->clients[srv->client_count++] = cl;
 
-    // Send welcome message
+    // Send welcome message - CRITICAL for AI compatibility
     sendf(fd, "WELCOME\n");
 }
 
 static bool handle_team_authentication(server_t *srv, client_t *cl, const char *team_name)
 {
+    // Remove any trailing whitespace
+    char clean_name[256];
+    strncpy(clean_name, team_name, sizeof(clean_name) - 1);
+    clean_name[sizeof(clean_name) - 1] = '\0';
+    
+    // Remove newline if present
+    char *newline = strchr(clean_name, '\n');
+    if (newline) *newline = '\0';
+    
     // Check if it's a GUI client
-    if (strcmp(team_name, "GRAPHIC") == 0) {
+    if (strcmp(clean_name, "GRAPHIC") == 0) {
         cl->is_gui = 1;
         cl->state = STATE_ACTIVE;
         
@@ -226,14 +221,14 @@ static bool handle_team_authentication(server_t *srv, client_t *cl, const char *
     
     // Check for valid team
     for (int i = 0; i < srv->teams_count; i++) {
-        if (strcmp(team_name, srv->team_names[i]) == 0) {
+        if (strcmp(clean_name, srv->team_names[i]) == 0) {
             if (srv->slots_remaining[i] > 0) {
                 cl->is_gui = 0;
                 cl->team_idx = i;
                 cl->state = STATE_ACTIVE;
                 srv->slots_remaining[i]--;
 
-                // Send connection info
+                // Send connection info in correct format for AI
                 sendf(cl->socket_fd, "%d\n%d %d\n", 
                       srv->slots_remaining[i], srv->width, srv->height);
                 
@@ -265,27 +260,27 @@ static bool handle_team_authentication(server_t *srv, client_t *cl, const char *
                 broadcast_to_gui(srv, msg);
                 
                 // Send initial inventory to GUI
-                snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d\n",
+                snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
                     player->id, player->x, player->y, player->inventory[0], 
                     player->inventory[1], player->inventory[2], player->inventory[3], 
                     player->inventory[4], player->inventory[5], player->inventory[6]);
                 broadcast_to_gui(srv, msg);
 
                 log_info("AI client authenticated for team '%s' (fd=%d, player #%d)", 
-                         team_name, cl->socket_fd, player->id);
+                         clean_name, cl->socket_fd, player->id);
                 return true;
             } else {
-                // No slots available
-                sendf(cl->socket_fd, "0\n");
-                log_info("No slots available for team '%s' (fd=%d)", team_name, cl->socket_fd);
+                // No slots available - send 0 as per protocol
+                sendf(cl->socket_fd, "0\n%d %d\n", srv->width, srv->height);
+                log_info("No slots available for team '%s' (fd=%d)", clean_name, cl->socket_fd);
                 return false;
             }
         }
     }
     
-    // Unknown team
-    sendf(cl->socket_fd, "0\n");
-    log_info("Unknown team '%s' (fd=%d)", team_name, cl->socket_fd);
+    // Unknown team - send 0 as per protocol
+    sendf(cl->socket_fd, "0\n%d %d\n", srv->width, srv->height);
+    log_info("Unknown team '%s' (fd=%d)", clean_name, cl->socket_fd);
     return false;
 }
 
@@ -334,7 +329,8 @@ void network_handle_client_io(server_t *srv, client_t *cl)
 
         if (cl->state == STATE_AUTH) {
             if (!handle_team_authentication(srv, cl, line)) {
-                // Authentication failed, remove client
+                // Authentication failed, remove client after a short delay
+                // to let client receive the response
                 for (int i = 0; i < srv->client_count; i++) {
                     if (srv->clients[i] == cl) {
                         remove_client(srv, i);

@@ -24,7 +24,7 @@ static resource_t resource_from_name(const char *name) {
 }
 
 static void send_response(int fd, const char *msg) {
-    send(fd, msg, strlen(msg), 0);
+    send(fd, msg, strlen(msg), MSG_NOSIGNAL);
 }
 
 static void sendf(int fd, const char *fmt, ...) {
@@ -33,83 +33,113 @@ static void sendf(int fd, const char *fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    send(fd, buf, strlen(buf), 0);
+    send(fd, buf, strlen(buf), MSG_NOSIGNAL);
 }
 
+// Generate look response with proper format for AI
 static void generate_look_response(server_t *srv, player_t *player, char *response, size_t max_size)
 {
-    char tile_content[512];
-    int vision_size = player->level + 1;
+    int vision_size = player->level; // Vision increases with level
     int pos = 0;
     
-    pos += snprintf(response + pos, max_size - pos, "[ ");
+    pos += snprintf(response + pos, max_size - pos, "[");
 
-    for (int row = 0; row < vision_size; row++) {
-        int tiles_in_row = 2 * row + 1;
-        int start_offset = -row;
-
-        for (int col = 0; col < tiles_in_row; col++) {
-            if (col > 0 || row > 0) {
-                pos += snprintf(response + pos, max_size - pos, ", ");
+    // Start with current tile (index 0)
+    char tile_content[512] = "";
+    int content_pos = 0;
+    
+    // Add players on current tile
+    for (int i = 0; i < srv->player_count; i++) {
+        if (srv->players[i]->x == player->x && srv->players[i]->y == player->y && 
+            srv->players[i]->alive && srv->players[i] != player) {
+            if (content_pos > 0) {
+                content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, " ");
             }
+            content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, "player");
+        }
+    }
 
+    // Add resources on current tile
+    tile_t *tile = &srv->map[player->y][player->x];
+    const char *res_names[] = {"food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"};
+    for (int r = 0; r < 7; r++) {
+        int count = (r == 0) ? tile->food : tile->stones[r - 1];
+        for (int c = 0; c < count; c++) {
+            if (content_pos > 0) {
+                content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, " ");
+            }
+            content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, "%s", res_names[r]);
+        }
+    }
+    
+    pos += snprintf(response + pos, max_size - pos, "%s", tile_content);
+
+    // Add surrounding tiles based on vision level
+    for (int level = 1; level <= vision_size; level++) {
+        int tiles_in_level = 2 * level + 1;
+        
+        for (int i = 0; i < tiles_in_level; i++) {
+            pos += snprintf(response + pos, max_size - pos, ",");
+            
             int dx = 0, dy = 0;
-            int offset = start_offset + col;
-
+            int offset = i - level; // Range from -level to +level
+            
+            // Calculate tile position based on player orientation
             switch (player->orientation) {
                 case NORTH:
                     dx = offset;
-                    dy = -row;
+                    dy = -level;
                     break;
                 case SOUTH:
                     dx = -offset;
-                    dy = row;
+                    dy = level;
                     break;
                 case EAST:
-                    dx = row;
+                    dx = level;
                     dy = offset;
                     break;
                 case WEST:
-                    dx = -row;
+                    dx = -level;
                     dy = -offset;
                     break;
             }
 
             int real_x = (player->x + dx + srv->width) % srv->width;
             int real_y = (player->y + dy + srv->height) % srv->height;
-            tile_t *tile = &srv->map[real_y][real_x];
+            tile_t *target_tile = &srv->map[real_y][real_x];
             
-            tile_content[0] = '\0';
-            int content_pos = 0;
+            char level_tile_content[512] = "";
+            int level_content_pos = 0;
 
             // Add players on this tile
-            for (int i = 0; i < srv->player_count; i++) {
-                if (srv->players[i]->x == real_x && srv->players[i]->y == real_y && srv->players[i]->alive) {
-                    if (content_pos > 0) {
-                        content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, " ");
+            for (int j = 0; j < srv->player_count; j++) {
+                if (srv->players[j]->x == real_x && srv->players[j]->y == real_y && srv->players[j]->alive) {
+                    if (level_content_pos > 0) {
+                        level_content_pos += snprintf(level_tile_content + level_content_pos, sizeof(level_tile_content) - level_content_pos, " ");
                     }
-                    content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, "player");
+                    level_content_pos += snprintf(level_tile_content + level_content_pos, sizeof(level_tile_content) - level_content_pos, "player");
                 }
             }
 
             // Add resources on this tile
-            const char *res_names[] = {"food", "linemate", "deraumere", "sibur", "mendiane", "phiras", "thystame"};
             for (int r = 0; r < 7; r++) {
-                int count = (r == 0) ? tile->food : tile->stones[r - 1];
+                int count = (r == 0) ? target_tile->food : target_tile->stones[r - 1];
                 for (int c = 0; c < count; c++) {
-                    if (content_pos > 0) {
-                        content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, " ");
+                    if (level_content_pos > 0) {
+                        level_content_pos += snprintf(level_tile_content + level_content_pos, sizeof(level_tile_content) - level_content_pos, " ");
                     }
-                    content_pos += snprintf(tile_content + content_pos, sizeof(tile_content) - content_pos, "%s", res_names[r]);
+                    level_content_pos += snprintf(level_tile_content + level_content_pos, sizeof(level_tile_content) - level_content_pos, "%s", res_names[r]);
                 }
             }
             
-            pos += snprintf(response + pos, max_size - pos, "%s", tile_content);
+            pos += snprintf(response + pos, max_size - pos, "%s", level_tile_content);
         }
     }
-    snprintf(response + pos, max_size - pos, " ]\n");
+    
+    snprintf(response + pos, max_size - pos, "]\n");
 }
 
+// Calculate sound direction for broadcast (simplified version)
 static int calculate_sound_direction(server_t *srv, player_t *sender, player_t *receiver)
 {
     int dx = sender->x - receiver->x;
@@ -124,21 +154,21 @@ static int calculate_sound_direction(server_t *srv, player_t *sender, player_t *
     }
 
     if (dx == 0 && dy == 0) {
-        return 0;
+        return 0; // Same tile
     }
 
+    // Simple 8-direction calculation
     double angle = atan2(dy, dx) * 180 / M_PI;
     angle = fmod(angle + 360, 360);
 
-    int dir_offset = ((int)((angle + 22.5) / 45) % 8);
-    int direction_map[4][8] = {
-        {3, 2, 1, 4, 5, 6, 7, 8},  // NORTH
-        {5, 4, 3, 2, 1, 8, 7, 6},  // EAST
-        {7, 6, 5, 4, 3, 2, 1, 8},  // SOUTH
-        {1, 8, 7, 6, 5, 4, 3, 2}   // WEST
-    };
-
-    return direction_map[receiver->orientation - 1][dir_offset];
+    // Convert to direction (1-8)
+    int dir = ((int)((angle + 22.5) / 45) % 8) + 1;
+    
+    // Adjust for player orientation
+    int orientation_offset = (receiver->orientation - 1) * 2;
+    dir = ((dir - 1 + orientation_offset) % 8) + 1;
+    
+    return dir;
 }
 
 static player_t *find_player_by_client(server_t *srv, client_t *cl) {
@@ -149,8 +179,13 @@ static player_t *find_player_by_client(server_t *srv, client_t *cl) {
     return NULL;
 }
 
-// Command implementations
+// AI Command implementations with exact format expected by Python AI
 static void cmd_forward(server_t *srv, client_t *cl, player_t *player) {
+    // Set action with proper timing
+    player->action_end_time = time(NULL) + (7.0 / srv->freq);
+    strcpy(player->pending_action, "forward");
+    
+    // Execute immediately for now (timing can be added later)
     player_move_forward(player, srv);
     send_response(cl->socket_fd, "ok\n");
     
@@ -161,6 +196,9 @@ static void cmd_forward(server_t *srv, client_t *cl, player_t *player) {
 }
 
 static void cmd_right(server_t *srv, client_t *cl, player_t *player) {
+    player->action_end_time = time(NULL) + (7.0 / srv->freq);
+    strcpy(player->pending_action, "right");
+    
     player_turn(player, 1);
     send_response(cl->socket_fd, "ok\n");
     
@@ -171,6 +209,9 @@ static void cmd_right(server_t *srv, client_t *cl, player_t *player) {
 }
 
 static void cmd_left(server_t *srv, client_t *cl, player_t *player) {
+    player->action_end_time = time(NULL) + (7.0 / srv->freq);
+    strcpy(player->pending_action, "left");
+    
     player_turn(player, -1);
     send_response(cl->socket_fd, "ok\n");
     
@@ -188,6 +229,7 @@ static void cmd_look(server_t *srv, client_t *cl, player_t *player) {
 
 static void cmd_inventory(server_t *srv, client_t *cl, player_t *player) {
     char response[512];
+    // Format exactly as expected by AI: [food n, linemate n, ...]
     snprintf(response, sizeof(response),
         "[food %d, linemate %d, deraumere %d, sibur %d, mendiane %d, phiras %d, thystame %d]\n",
         player->inventory[0], player->inventory[1], player->inventory[2],
@@ -219,7 +261,7 @@ static void cmd_take(server_t *srv, client_t *cl, player_t *player, const char *
         broadcast_to_gui(srv, msg);
         
         // Update player inventory for GUI
-        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d\n",
+        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
             player->id, player->x, player->y, player->inventory[0], player->inventory[1], 
             player->inventory[2], player->inventory[3], player->inventory[4], player->inventory[5], player->inventory[6]);
         broadcast_to_gui(srv, msg);
@@ -251,7 +293,7 @@ static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *o
         broadcast_to_gui(srv, msg);
         
         // Update player inventory for GUI
-        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d\n",
+        snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
             player->id, player->x, player->y, player->inventory[0], player->inventory[1], 
             player->inventory[2], player->inventory[3], player->inventory[4], player->inventory[5], player->inventory[6]);
         broadcast_to_gui(srv, msg);
@@ -261,6 +303,7 @@ static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *o
 }
 
 static void cmd_broadcast(server_t *srv, client_t *cl, player_t *player, const char *message) {
+    // Send message to all other players with direction
     for (int i = 0; i < srv->player_count; i++) {
         if (srv->players[i] == player || !srv->players[i]->alive)
             continue;
@@ -292,6 +335,7 @@ static void cmd_connect_nbr(server_t *srv, client_t *cl, player_t *player) {
 }
 
 static void cmd_fork(server_t *srv, client_t *cl, player_t *player) {
+    // Add slot for team
     srv->slots_remaining[player->team_idx]++;
     send_response(cl->socket_fd, "ok\n");
     
@@ -299,6 +343,7 @@ static void cmd_fork(server_t *srv, client_t *cl, player_t *player) {
     snprintf(msg, sizeof(msg), "pfk #%d\n", player->id);
     broadcast_to_gui(srv, msg);
     
+    // Create egg for GUI
     static int egg_id = 1;
     snprintf(msg, sizeof(msg), "enw #%d #%d %d %d\n",
         egg_id++, player->id, player->x, player->y);
@@ -308,14 +353,17 @@ static void cmd_fork(server_t *srv, client_t *cl, player_t *player) {
 static void cmd_eject(server_t *srv, client_t *cl, player_t *player) {
     int ejected = 0;
     
+    // Eject all players on the same tile
     for (int i = 0; i < srv->player_count; i++) {
         if (srv->players[i] != player &&
             srv->players[i]->x == player->x &&
             srv->players[i]->y == player->y &&
             srv->players[i]->alive) {
             
+            // Move player forward in the direction the ejector is facing
             player_move_forward(srv->players[i], srv);
             
+            // Notify ejected player
             client_t *ejected_cl = NULL;
             for (int j = 0; j < srv->client_count; j++) {
                 if (srv->clients[j]->id == srv->players[i]->client_idx) {
@@ -353,9 +401,11 @@ static void cmd_incantation(server_t *srv, client_t *cl, player_t *player) {
         
         send_response(cl->socket_fd, "Elevation underway\n");
         
+        // Notify GUI of incantation start
         char msg[512];
         snprintf(msg, sizeof(msg), "pic %d %d %d", player->x, player->y, player->level);
         
+        // Add all participating players
         for (int i = 0; i < srv->player_count; i++) {
             if (srv->players[i]->x == player->x && srv->players[i]->y == player->y &&
                 srv->players[i]->level == player->level && srv->players[i]->alive) {
@@ -409,56 +459,8 @@ static void cmd_tna(server_t *srv, client_t *cl) {
     }
 }
 
-static void cmd_ppo(server_t *srv, client_t *cl, int player_id) {
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->id == player_id && srv->players[i]->alive) {
-            player_t *p = srv->players[i];
-            sendf(cl->socket_fd, "ppo #%d %d %d %d\n", p->id, p->x, p->y, p->orientation);
-            return;
-        }
-    }
-    send_response(cl->socket_fd, "sbp\n");
-}
-
-static void cmd_plv(server_t *srv, client_t *cl, int player_id) {
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->id == player_id && srv->players[i]->alive) {
-            sendf(cl->socket_fd, "plv #%d %d\n", player_id, srv->players[i]->level);
-            return;
-        }
-    }
-    send_response(cl->socket_fd, "sbp\n");
-}
-
-static void cmd_pin(server_t *srv, client_t *cl, int player_id) {
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->id == player_id && srv->players[i]->alive) {
-            player_t *p = srv->players[i];
-            sendf(cl->socket_fd, "pin #%d %d %d %d %d %d %d %d %d\n",
-                  p->id, p->x, p->y, p->inventory[0], p->inventory[1], p->inventory[2], 
-                  p->inventory[3], p->inventory[4], p->inventory[5], p->inventory[6]);
-            return;
-        }
-    }
-    send_response(cl->socket_fd, "sbp\n");
-}
-
 static void cmd_sgt(server_t *srv, client_t *cl) {
     sendf(cl->socket_fd, "sgt %d\n", srv->freq);
-}
-
-static void cmd_sst(server_t *srv, client_t *cl, int freq) {
-    if (freq < 2 || freq > 10000) { 
-        send_response(cl->socket_fd, "sbp\n"); 
-        return; 
-    }
-    srv->freq = freq;
-    sendf(cl->socket_fd, "sst %d\n", srv->freq);
-    
-    // Broadcast frequency change to all GUI clients
-    char msg[256];
-    snprintf(msg, sizeof(msg), "sst %d\n", srv->freq);
-    broadcast_to_gui(srv, msg);
 }
 
 void dispatch_command(server_t *srv, client_t *cl, const char *line) {
@@ -493,12 +495,6 @@ void dispatch_command(server_t *srv, client_t *cl, const char *line) {
         // Check if player is alive
         if (!player->alive) {
             send_response(cl->socket_fd, "dead\n");
-            return;
-        }
-        
-        // Check if player is incanting (blocked)
-        if (player->is_incanting && strcmp(cmd, "Incantation") != 0) {
-            send_response(cl->socket_fd, "ko\n");
             return;
         }
     }
@@ -545,23 +541,8 @@ void dispatch_command(server_t *srv, client_t *cl, const char *line) {
             cmd_mct(srv, cl);
         } else if (strcmp(cmd, "tna") == 0) {
             cmd_tna(srv, cl);
-        } else if (strcmp(cmd, "ppo") == 0 && arg1) {
-            // Remove '#' prefix if present
-            char *id_str = arg1;
-            if (arg1[0] == '#') id_str = arg1 + 1;
-            cmd_ppo(srv, cl, atoi(id_str));
-        } else if (strcmp(cmd, "plv") == 0 && arg1) {
-            char *id_str = arg1;
-            if (arg1[0] == '#') id_str = arg1 + 1;
-            cmd_plv(srv, cl, atoi(id_str));
-        } else if (strcmp(cmd, "pin") == 0 && arg1) {
-            char *id_str = arg1;
-            if (arg1[0] == '#') id_str = arg1 + 1;
-            cmd_pin(srv, cl, atoi(id_str));
         } else if (strcmp(cmd, "sgt") == 0) {
             cmd_sgt(srv, cl);
-        } else if (strcmp(cmd, "sst") == 0 && arg1) {
-            cmd_sst(srv, cl, atoi(arg1));
         } else {
             send_response(cl->socket_fd, "suc\n");
         }
