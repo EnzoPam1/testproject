@@ -1,47 +1,46 @@
 /*
 ** EPITECH PROJECT, 2025
-** zappy_server
+** Zappy
 ** File description:
-** Server structure and functions
+** Command processing
 */
 
-#pragma once
+#ifndef COMMAND_H_
+#define COMMAND_H_
 
-#include <signal.h>
-#include <stdint.h>
-#include <time.h>
-#include "game.h"
-#include "client.h"
-#include "player.h"
+// Forward declarations
+typedef struct server_s server_t;
+typedef struct client_s client_t;
+typedef struct player_s player_t;
 
-typedef struct s_server {
-    uint16_t   port;
-    int        width, height;
-    int        freq;
-    int        listen_fd;
+// Command durations (in time units)
+#define DURATION_FORWARD 7
+#define DURATION_TURN 7
+#define DURATION_LOOK 7
+#define DURATION_INVENTORY 1
+#define DURATION_BROADCAST 7
+#define DURATION_FORK 42
+#define DURATION_EJECT 7
+#define DURATION_TAKE 7
+#define DURATION_SET 7
+#define DURATION_INCANTATION 300
 
-    char     **team_names;
-    int        teams_count;
-    int        max_per_team;
-    int       *slots_remaining;
+// Command processing
+void command_process(server_t *server, client_t *client, const char *command);
+void command_execute(server_t *server, client_t *client, player_t *player, const char *command);
 
-    client_t **clients;
-    int        client_count;
-    int        client_capacity;
+// AI commands
+void cmd_forward(server_t *server, client_t *client, player_t *player);
+void cmd_right(server_t *server, client_t *client, player_t *player);
+void cmd_left(server_t *server, client_t *client, player_t *player);
+void cmd_look(server_t *server, client_t *client, player_t *player);
+void cmd_inventory(server_t *server, client_t *client, player_t *player);
+void cmd_broadcast(server_t *server, client_t *client, player_t *player, const char *text);
+void cmd_connect_nbr(server_t *server, client_t *client, player_t *player);
+void cmd_fork(server_t *server, client_t *client, player_t *player);
+void cmd_eject(server_t *server, client_t *client, player_t *player);
+void cmd_take(server_t *server, client_t *client, player_t *player, const char *object);
+void cmd_set(server_t *server, client_t *client, player_t *player, const char *object);
+void cmd_incantation(server_t *server, client_t *client, player_t *player);
 
-    player_t **players;
-    int        player_count;
-    int        player_capacity;
-
-    tile_t   **map;
-
-    time_t     last_tick;
-    int        tick_count;
-} server_t;
-
-extern volatile sig_atomic_t stop_server;
-
-int  server_init(server_t *srv, int argc, char **argv);
-void server_run(server_t *srv);
-void server_cleanup(server_t *srv);
-void handle_signal(int sig);
+#endif /* !COMMAND_H_ */

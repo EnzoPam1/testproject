@@ -1,224 +1,273 @@
 /*
 ** EPITECH PROJECT, 2025
-** zappy_server
+** Zappy
 ** File description:
-** Network handling
+** Network implementation
 */
 
-#include "network.h"
-#include "buffer.h"
-#include "commands.h"
-#include "utils.h"
-#include "client.h"
-#include "server.h"
-#include "player.h"
-#include "actions.h"
-
-#include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <stdarg.h>
-#include <stdio.h>
+#include "network.h"
+#include "client.h"
+#include "server.h"
+#include "utils.h"
 
-int network_setup_listener(server_t *srv)
+network_t *network_create(uint16_t port)
 {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    int yes = 1;
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(srv->port),
-        .sin_addr = {.s_addr = INADDR_ANY}
-    };
+    network_t *net = calloc(1, sizeof(network_t));
+    if (!net) return NULL;
 
-    if (fd < 0)
-        return -1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) < 0)
-        return -1;
-    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        close(fd);
-        return -1;
+    // Create listen socket
+    net->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (net->listen_fd < 0) {
+        free(net);
+        return NULL;
     }
-    if (listen(fd, 10) < 0) {
-        close(fd);
-        return -1;
+
+    // Allow reuse
+    int opt = 1;
+    setsockopt(net->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    // Bind
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+
+    if (bind(net->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(net->listen_fd);
+        free(net);
+        return NULL;
     }
-    return fd;
+
+    // Listen
+    if (listen(net->listen_fd, 128) < 0) {
+        close(net->listen_fd);
+        free(net);
+        return NULL;
+    }
+
+    // Initialize poll
+    net->poll_capacity = 16;
+    net->poll_fds = calloc(net->poll_capacity, sizeof(struct pollfd));
+    net->poll_fds[0].fd = net->listen_fd;
+    net->poll_fds[0].events = POLLIN;
+    net->poll_count = 1;
+
+    // Initialize clients
+    net->client_capacity = 16;
+    net->clients = calloc(net->client_capacity, sizeof(client_t *));
+
+    return net;
 }
 
-static void sendf(int fd, const char *fmt, ...)
+void network_destroy(network_t *net)
 {
-    char buf[256];
-    va_list ap;
+    if (!net) return;
 
-    va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    send(fd, buf, strlen(buf), 0);
+    // Close all clients
+    for (int i = 0; i < net->client_count; i++) {
+        if (net->clients[i]) {
+            close(net->clients[i]->fd);
+            client_destroy(net->clients[i]);
+        }
+    }
+
+    // Close listen socket
+    close(net->listen_fd);
+
+    // Free memory
+    free(net->poll_fds);
+    free(net->clients);
+    free(net);
 }
 
-static void remove_client(server_t *srv, int idx)
+int network_poll(network_t *net, int timeout)
 {
-    client_t *cl = srv->clients[idx];
+    return poll(net->poll_fds, net->poll_count, timeout);
+}
 
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->client_idx == cl->id) {
-            char msg[256];
-            snprintf(msg, sizeof(msg), "pdi #%d\n", srv->players[i]->id);
-            broadcast_to_gui(srv, msg);
+client_t *network_accept_client(network_t *net)
+{
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
 
-            player_destroy(srv->players[i]);
-            for (int j = i + 1; j < srv->player_count; j++)
-                srv->players[j - 1] = srv->players[j];
-            srv->player_count--;
+    int fd = accept(net->listen_fd, (struct sockaddr *)&addr, &addr_len);
+    if (fd < 0) return NULL;
+
+    // Create client
+    client_t *client = client_create(fd);
+    if (!client) {
+        close(fd);
+        return NULL;
+    }
+
+    // Expand arrays if needed
+    if (net->client_count >= net->client_capacity) {
+        net->client_capacity *= 2;
+        net->clients = realloc(net->clients, net->client_capacity * sizeof(client_t *));
+    }
+
+    if (net->poll_count >= net->poll_capacity) {
+        net->poll_capacity *= 2;
+        net->poll_fds = realloc(net->poll_fds, net->poll_capacity * sizeof(struct pollfd));
+    }
+
+    // Add client
+    net->clients[net->client_count++] = client;
+    net->poll_fds[net->poll_count].fd = fd;
+    net->poll_fds[net->poll_count].events = POLLIN;
+    net->poll_count++;
+
+    return client;
+}
+
+void network_disconnect_client(network_t *net, client_t *client)
+{
+    // Find client index
+    int index = -1;
+    for (int i = 0; i < net->client_count; i++) {
+        if (net->clients[i] == client) {
+            index = i;
             break;
         }
     }
 
-    close(cl->socket_fd);
-    client_destroy(cl);
-    for (int j = idx + 1; j < srv->client_count; j++)
-        srv->clients[j - 1] = srv->clients[j];
-    srv->client_count--;
-}
+    if (index < 0) return;
 
-void network_handle_new_connection(server_t *srv)
-{
-    struct sockaddr_in peer;
-    socklen_t len = sizeof(peer);
-    int fd = accept(srv->listen_fd, (struct sockaddr*)&peer, &len);
-    static int next_client_id = 1;
+    // Close and destroy
+    close(client->fd);
+    client_destroy(client);
 
-    if (fd < 0)
-        return;
-
-    log_info("New client connected (fd=%d)", fd);
-    client_t *cl = client_create(fd);
-    buffer_init(&cl->buf);
-    cl->state = STATE_AUTH;
-    cl->id = next_client_id++;
-
-    if (srv->client_count == srv->client_capacity) {
-        int newcap = srv->client_capacity * 2;
-        client_t **tmp = realloc(srv->clients, sizeof(*tmp) * newcap);
-        if (!tmp)
-            die("realloc clients");
-        srv->clients = tmp;
-        srv->client_capacity = newcap;
+    // Remove from arrays
+    for (int i = index; i < net->client_count - 1; i++) {
+        net->clients[i] = net->clients[i + 1];
     }
-    srv->clients[srv->client_count++] = cl;
+    net->client_count--;
 
-    sendf(fd, "WELCOME\n");
+    // Remove from poll
+    for (int i = index + 1; i < net->poll_count - 1; i++) {
+        net->poll_fds[i] = net->poll_fds[i + 1];
+    }
+    net->poll_count--;
+
+    log_info("Client disconnected");
 }
 
-void network_handle_client_io(server_t *srv, client_t *cl)
+void network_send(client_t *client, const char *format, ...)
 {
-    char tmp[512], line[BUF_SIZE];
-    ssize_t r = recv(cl->socket_fd, tmp, sizeof(tmp), 0);
+    char buffer[BUFFER_SIZE];
+    va_list args;
+    
+    va_start(args, format);
+    int len = vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
 
-    if (r <= 0) {
-        for (int i = 0; i < srv->client_count; i++) {
-            if (srv->clients[i] == cl) {
-                log_info("Client disconnected (fd=%d)", cl->socket_fd);
-                remove_client(srv, i);
+    if (len <= 0 || len >= BUFFER_SIZE) return;
+
+    // Try to send immediately
+    int sent = send(client->fd, buffer, len, MSG_DONTWAIT);
+    if (sent < len) {
+        // Buffer the rest
+        int remaining = len - (sent > 0 ? sent : 0);
+        if (client->output_size + remaining < BUFFER_SIZE) {
+            memcpy(client->output_buffer + client->output_size, 
+                   buffer + (sent > 0 ? sent : 0), remaining);
+            client->output_size += remaining;
+        }
+    }
+}
+
+void network_send_to_all_gui(network_t *net, const char *format, ...)
+{
+    char buffer[BUFFER_SIZE];
+    va_list args;
+    
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    for (int i = 0; i < net->client_count; i++) {
+        if (net->clients[i]->type == CLIENT_GUI) {
+            network_send(net->clients[i], "%s", buffer);
+        }
+    }
+}
+
+char *network_read_line(client_t *client)
+{
+    // Receive data
+    char temp[BUFFER_SIZE];
+    int received = recv(client->fd, temp, 
+                       BUFFER_SIZE - client->input_size - 1, MSG_DONTWAIT);
+
+    if (received > 0) {
+        // Add to buffer
+        memcpy(client->input_buffer + client->input_size, temp, received);
+        client->input_size += received;
+        client->input_buffer[client->input_size] = '\0';
+    } else if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+        // Connection closed or error
+        return NULL;
+    }
+
+    // Look for newline
+    char *newline = strchr(client->input_buffer, '\n');
+    if (!newline) return NULL;
+
+    // Extract line
+    size_t line_len = newline - client->input_buffer;
+    char *line = malloc(line_len + 1);
+    memcpy(line, client->input_buffer, line_len);
+    line[line_len] = '\0';
+
+    // Remove from buffer
+    memmove(client->input_buffer, newline + 1, 
+            client->input_size - line_len - 1);
+    client->input_size -= line_len + 1;
+
+    return str_trim(line);
+}
+
+void network_process_client_data(server_t *server, client_t *client)
+{
+    // Send any buffered output
+    if (client->output_size > 0) {
+        int sent = send(client->fd, client->output_buffer, 
+                       client->output_size, MSG_DONTWAIT);
+        if (sent > 0) {
+            memmove(client->output_buffer, client->output_buffer + sent,
+                    client->output_size - sent);
+            client->output_size -= sent;
+        }
+    }
+
+    // Read input
+    char *line;
+    while ((line = network_read_line(client)) != NULL) {
+        if (strlen(line) == 0) {
+            free(line);
+            continue;
+        }
+
+        handle_client_command(server, client, line);
+        free(line);
+
+        // Check if client was disconnected
+        bool still_connected = false;
+        for (int i = 0; i < server->network->client_count; i++) {
+            if (server->network->clients[i] == client) {
+                still_connected = true;
                 break;
             }
         }
-        return;
-    }
-
-    buffer_write(&cl->buf, tmp, (size_t)r);
-
-    while (buffer_readline(&cl->buf, line, sizeof(line))) {
-        line[strcspn(line, "\r\n")] = '\0';
-
-        if (cl->state == STATE_AUTH) {
-            int handled = 0;
-            for (int i = 0; i < srv->teams_count; i++) {
-                if (strcmp(line, srv->team_names[i]) == 0) {
-                    if (srv->slots_remaining[i] > 0) {
-                        cl->is_gui = 0;
-                        cl->team_idx = i;
-                        cl->state = STATE_ACTIVE;
-                        srv->slots_remaining[i]--;
-
-                        sendf(cl->socket_fd, "%d %d %d\n", srv->slots_remaining[i], srv->width, srv->height);
-                        int spawn_x = rand() % srv->width;
-                        int spawn_y = rand() % srv->height;
-                        player_t *player = player_create(cl->id, i,
-                            spawn_x, spawn_y);
-
-                        if (srv->player_count == srv->player_capacity) {
-                            int newcap = srv->player_capacity * 2;
-                            player_t **tmp = realloc(srv->players,
-                                sizeof(*tmp) * newcap);
-                            if (!tmp)
-                                die("realloc players");
-                            srv->players = tmp;
-                            srv->player_capacity = newcap;
-                        }
-                        srv->players[srv->player_count++] = player;
-
-                        char msg[256];
-                        snprintf(msg, sizeof(msg),
-                            "pnw #%d %d %d %d %d %s\n",
-                            player->id, player->x, player->y,
-                            player->orientation, player->level,
-                            srv->team_names[i]);
-                        broadcast_to_gui(srv, msg);
-                    } else {
-                        sendf(cl->socket_fd, "0\n");
-                        for (int j = 0; j < srv->client_count; j++) {
-                            if (srv->clients[j] == cl) {
-                                remove_client(srv, j);
-                                break;
-                            }
-                        }
-                        return;
-                    }
-                    handled = 1;
-                    break;
-                }
-            }
-            if (!handled && strcmp(line, "GRAPHIC") == 0) {
-                cl->is_gui = 1;
-                cl->state = STATE_ACTIVE;
-                handled = 1;
-
-                sendf(cl->socket_fd, "msz %d %d\n", srv->width, srv->height);
-                for (int y = 0; y < srv->height; y++) {
-                    for (int x = 0; x < srv->width; x++) {
-                        tile_t *tile = &srv->map[y][x];
-                        sendf(cl->socket_fd, "bct %d %d %d %d %d %d %d %d %d\n",
-                            x, y, tile->food, tile->stones[0], tile->stones[1],
-                            tile->stones[2], tile->stones[3], tile->stones[4],
-                            tile->stones[5]);
-                    }
-                }
-                for (int i = 0; i < srv->teams_count; i++)
-                    sendf(cl->socket_fd, "tna %s\n", srv->team_names[i]);
-
-                for (int i = 0; i < srv->player_count; i++) {
-                    player_t *p = srv->players[i];
-                    sendf(cl->socket_fd, "pnw #%d %d %d %d %d %s\n",
-                        p->id, p->x, p->y, p->orientation, p->level,
-                        srv->team_names[p->team_idx]);
-                }
-
-                sendf(cl->socket_fd, "sgt %d\n", srv->freq);
-            }
-            if (!handled) {
-                sendf(cl->socket_fd, "0\n");
-                for (int j = 0; j < srv->client_count; j++) {
-                    if (srv->clients[j] == cl) {
-                        remove_client(srv, j);
-                        break;
-                    }
-                }
-            }
-        } else {
-            dispatch_command(srv, cl, line);
-        }
+        if (!still_connected) break;
     }
 }

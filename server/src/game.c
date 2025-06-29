@@ -1,211 +1,256 @@
 /*
 ** EPITECH PROJECT, 2025
-** zappy_server
+** Zappy
 ** File description:
 ** Game logic implementation
 */
 
-#include "game.h"
-#include "server.h"
-#include "player.h"
-#include "utils.h"
-#include "actions.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "game.h"
+#include "utils.h"
+#include "resources.h"
 
-static const float RESOURCE_DENSITY[] = {
-    0.5, 0.3, 0.15, 0.1, 0.1, 0.08, 0.05
-};
-
-static void distribute_resources(tile_t **map, int width, int height)
+game_t *game_create(int width, int height, char **team_names, int team_count, int clients_nb)
 {
-    int total_tiles = width * height;
+    game_t *game = calloc(1, sizeof(game_t));
+    if (!game) return NULL;
 
-    for (int res = 0; res < 7; res++) {
-        int count = (int)(total_tiles * RESOURCE_DENSITY[res]);
-        if (count < 1)
-            count = 1;
+    // Create map
+    game->map = map_create(width, height);
+    if (!game->map) {
+        free(game);
+        return NULL;
+    }
 
-        log_info("Distributing %d %s", count,
-            res == 0 ? "food" : res == 1 ? "linemate" :
-            res == 2 ? "deraumere" : res == 3 ? "sibur" :
-            res == 4 ? "mendiane" : res == 5 ? "phiras" : "thystame");
-
-        for (int i = 0; i < count; i++) {
+    // Create teams
+    game->teams = calloc(team_count, sizeof(team_t *));
+    game->team_count = team_count;
+    
+    for (int i = 0; i < team_count; i++) {
+        game->teams[i] = team_create(i, team_names[i], clients_nb);
+        
+        // Create initial eggs
+        for (int j = 0; j < clients_nb; j++) {
             int x = rand() % width;
             int y = rand() % height;
-
-            if (res == 0)
-                map[y][x].food++;
-            else
-                map[y][x].stones[res - 1]++;
-        }
-    }
-}
-
-tile_t **game_map_init(int width, int height, float density[])
-{
-    tile_t **map = malloc(sizeof(tile_t*) * height);
-
-    if (!map)
-        die("malloc map pointers");
-    for (int y = 0; y < height; y++) {
-        map[y] = malloc(sizeof(tile_t) * width);
-        if (!map[y])
-            die("malloc map row");
-        memset(map[y], 0, sizeof(tile_t) * width);
-    }
-    distribute_resources(map, width, height);
-    return map;
-}
-
-void game_map_free(tile_t **map, int height)
-{
-    for (int y = 0; y < height; y++)
-        free(map[y]);
-    free(map);
-}
-
-static void respawn_resources(server_t *srv)
-{
-    static int tick_count = 0;
-
-    tick_count++;
-    if (tick_count >= 20 * srv->freq) {
-        tick_count = 0;
-        log_info("Respawning resources");
-        distribute_resources(srv->map, srv->width, srv->height);
-    }
-}
-
-int check_elevation_requirements(server_t *srv, int x, int y, int level)
-{
-    tile_t *tile = &srv->map[y][x];
-    int req_players[] = {0, 1, 2, 2, 4, 4, 6, 6};
-    int req_stones[8][6] = {
-        {0, 0, 0, 0, 0, 0},
-        {1, 0, 0, 0, 0, 0},
-        {1, 1, 1, 0, 0, 0},
-        {2, 0, 1, 0, 2, 0},
-        {1, 1, 2, 0, 1, 0},
-        {1, 2, 1, 3, 0, 0},
-        {1, 2, 3, 0, 1, 0},
-        {2, 2, 2, 2, 2, 1}
-    };
-
-    if (level < 1 || level > 7)
-        return 0;
-
-    int player_count = 0;
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->x == x && srv->players[i]->y == y &&
-            srv->players[i]->level == level)
-            player_count++;
-    }
-
-    if (player_count < req_players[level])
-        return 0;
-
-    for (int i = 0; i < 6; i++) {
-        if (tile->stones[i] < req_stones[level][i])
-            return 0;
-    }
-    return 1;
-}
-
-void perform_elevation(server_t *srv, int x, int y, int level)
-{
-    tile_t *tile = &srv->map[y][x];
-    int req_stones[8][6] = {
-        {0, 0, 0, 0, 0, 0},
-        {1, 0, 0, 0, 0, 0},
-        {1, 1, 1, 0, 0, 0},
-        {2, 0, 1, 0, 2, 0},
-        {1, 1, 2, 0, 1, 0},
-        {1, 2, 1, 3, 0, 0},
-        {1, 2, 3, 0, 1, 0},
-        {2, 2, 2, 2, 2, 1}
-    };
-
-    for (int i = 0; i < 6; i++)
-        tile->stones[i] -= req_stones[level][i];
-
-    int elevated = 0;
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->x == x && srv->players[i]->y == y &&
-            srv->players[i]->level == level) {
-            srv->players[i]->level++;
-            srv->players[i]->is_incanting = 0;
-            elevated++;
-            log_info("Player #%d reached level %d",
-                srv->players[i]->id, srv->players[i]->level);
-        }
-    }
-
-    char msg[256];
-    snprintf(msg, sizeof(msg), "pie %d %d 1\n", x, y);
-    broadcast_to_gui(srv, msg);
-
-    int level8_count = 0;
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i]->level >= 8)
-            level8_count++;
-    }
-
-    if (level8_count >= 6) {
-        log_info("Victory! 6 players reached level 8");
-        char victory_msg[256];
-        snprintf(victory_msg, sizeof(victory_msg), "seg %s\n",
-            srv->team_names[srv->players[0]->team_idx]);
-        broadcast_to_gui(srv, victory_msg);
-    }
-}
-
-static void check_incantations(server_t *srv)
-{
-    for (int y = 0; y < srv->height; y++) {
-        for (int x = 0; x < srv->width; x++) {
-            int incanting_player = -1;
-            for (int i = 0; i < srv->player_count; i++) {
-                if (srv->players[i]->x == x && srv->players[i]->y == y &&
-                    srv->players[i]->is_incanting) {
-                    incanting_player = i;
-                    break;
-                }
-            }
-
-            if (incanting_player >= 0) {
-                player_t *p = srv->players[incanting_player];
-                if (check_elevation_requirements(srv, x, y, p->level)) {
-                    char msg[512];
-                    snprintf(msg, sizeof(msg), "pic %d %d %d",
-                        x, y, p->level);
-
-                    for (int i = 0; i < srv->player_count; i++) {
-                        if (srv->players[i]->x == x && srv->players[i]->y == y &&
-                            srv->players[i]->level == p->level) {
-                            char player_str[32];
-                            snprintf(player_str, sizeof(player_str),
-                                " #%d", srv->players[i]->id);
-                            strcat(msg, player_str);
-                            srv->players[i]->is_incanting = 1;
-                        }
-                    }
-                    strcat(msg, "\n");
-                    broadcast_to_gui(srv, msg);
-                }
+            egg_t *egg = team_add_egg(game->teams[i], game->next_egg_id++, x, y);
+            if (egg) {
+                map_add_egg(game->map, x, y, egg->id);
             }
         }
     }
+
+    // Initialize players array
+    game->player_capacity = 16;
+    game->players = calloc(game->player_capacity, sizeof(player_t *));
+    
+    // Initialize IDs
+    game->next_player_id = 1;
+    game->next_egg_id = team_count * clients_nb + 1;
+    
+    // Spawn initial resources
+    game_spawn_resources(game);
+
+    srand(time(NULL));
+    
+    return game;
 }
 
-void game_tick(server_t *srv)
+void game_destroy(game_t *game)
 {
-    for (int i = 0; i < srv->player_count; i++)
-        player_consume_life(srv->players[i], srv);
+    if (!game) return;
 
-    execute_pending_actions(srv);
-    check_incantations(srv);
-    respawn_resources(srv);
+    // Destroy map
+    if (game->map) map_destroy(game->map);
+
+    // Destroy teams
+    for (int i = 0; i < game->team_count; i++) {
+        if (game->teams[i]) team_destroy(game->teams[i]);
+    }
+    free(game->teams);
+
+    // Destroy players
+    for (int i = 0; i < game->player_count; i++) {
+        if (game->players[i]) player_destroy(game->players[i]);
+    }
+    free(game->players);
+
+    if (game->winning_team) free(game->winning_team);
+
+    free(game);
+}
+
+player_t *game_add_player(game_t *game, int client_id, const char *team_name)
+{
+    // Find team
+    team_t *team = game_get_team_by_name(game, team_name);
+    if (!team || team->egg_count == 0) return NULL;
+
+    // Get random egg
+    egg_t *egg = team_get_random_egg(team);
+    if (!egg) return NULL;
+
+    // Create player at egg position
+    player_t *player = player_create(game->next_player_id++, client_id, 
+                                    team->id, egg->x, egg->y);
+    if (!player) return NULL;
+
+    // Expand player array if needed
+    if (game->player_count >= game->player_capacity) {
+        game->player_capacity *= 2;
+        game->players = realloc(game->players, 
+                               game->player_capacity * sizeof(player_t *));
+    }
+
+    // Add player
+    game->players[game->player_count++] = player;
+    map_add_player(game->map, player->x, player->y, player->id);
+
+    // Remove egg
+    map_remove_egg(game->map, egg->x, egg->y, egg->id);
+    team_remove_egg(team, egg->id);
+    team->connected_clients++;
+
+    return player;
+}
+
+void game_remove_player(game_t *game, int player_id)
+{
+    // Find player
+    int index = -1;
+    for (int i = 0; i < game->player_count; i++) {
+        if (game->players[i]->id == player_id) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index < 0) return;
+
+    player_t *player = game->players[index];
+    
+    // Remove from map
+    map_remove_player(game->map, player->x, player->y, player->id);
+    
+    // Update team
+    if (player->team_id >= 0 && player->team_id < game->team_count) {
+        game->teams[player->team_id]->connected_clients--;
+    }
+    
+    // Drop inventory
+    tile_t *tile = map_get_tile(game->map, player->x, player->y);
+    for (int i = 0; i < RESOURCE_COUNT; i++) {
+        tile->resources[i] += player->inventory[i];
+    }
+    
+    // Destroy player
+    player_destroy(player);
+    
+    // Remove from array
+    for (int i = index; i < game->player_count - 1; i++) {
+        game->players[i] = game->players[i + 1];
+    }
+    game->player_count--;
+}
+
+team_t *game_get_team_by_name(game_t *game, const char *name)
+{
+    for (int i = 0; i < game->team_count; i++) {
+        if (strcmp(game->teams[i]->name, name) == 0) {
+            return game->teams[i];
+        }
+    }
+    return NULL;
+}
+
+player_t *game_get_player_by_id(game_t *game, int player_id)
+{
+    for (int i = 0; i < game->player_count; i++) {
+        if (game->players[i]->id == player_id) {
+            return game->players[i];
+        }
+    }
+    return NULL;
+}
+
+void game_tick(game_t *game, int freq)
+{
+    // Update all players
+    for (int i = 0; i < game->player_count; i++) {
+        player_t *player = game->players[i];
+        
+        // Consume life
+        player_consume_life(player);
+    }
+    
+    // Remove dead players
+    for (int i = game->player_count - 1; i >= 0; i--) {
+        if (game->players[i]->is_dead) {
+            log_info("Player %d died", game->players[i]->id);
+            game_remove_player(game, game->players[i]->id);
+        }
+    }
+    
+    // Spawn resources every 20 time units
+    game->resource_timer++;
+    if (game->resource_timer >= 20 * freq) {
+        game->resource_timer = 0;
+        game_spawn_resources(game);
+        log_info("Resources spawned");
+    }
+}
+
+bool game_check_victory(game_t *game)
+{
+    // Check each team
+    for (int i = 0; i < game->team_count; i++) {
+        int level8_count = 0;
+        
+        // Count level 8 players
+        for (int j = 0; j < game->player_count; j++) {
+            if (game->players[j]->team_id == i && 
+                game->players[j]->level >= 8) {
+                level8_count++;
+            }
+        }
+        
+        // Victory condition: 6 players at level 8
+        if (level8_count >= 6) {
+            game->game_won = true;
+            game->winning_team = strdup(game->teams[i]->name);
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+void game_spawn_resources(game_t *game)
+{
+    int total_tiles = game->map->width * game->map->height;
+    
+    for (int res = 0; res < RESOURCE_COUNT; res++) {
+        int target = (int)(total_tiles * RESOURCE_DENSITY[res]);
+        int current = 0;
+        
+        // Count current resources
+        for (int y = 0; y < game->map->height; y++) {
+            for (int x = 0; x < game->map->width; x++) {
+                tile_t *tile = map_get_tile(game->map, x, y);
+                current += tile->resources[res];
+            }
+        }
+        
+        // Spawn missing resources
+        int to_spawn = target - current;
+        while (to_spawn > 0) {
+            int x = rand() % game->map->width;
+            int y = rand() % game->map->height;
+            tile_t *tile = map_get_tile(game->map, x, y);
+            tile->resources[res]++;
+            to_spawn--;
+        }
+    }
 }

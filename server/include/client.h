@@ -1,32 +1,65 @@
 /*
 ** EPITECH PROJECT, 2025
-** zappy_server
+** Zappy
 ** File description:
-** Client structure
+** Client structure and management
 */
 
 #ifndef CLIENT_H_
-    #define CLIENT_H_
+#define CLIENT_H_
 
-    #include <stdint.h>
-    #include "buffer.h"
+#include <stdbool.h>
+#include <time.h>
 
+#define MAX_COMMANDS 10
+
+// Client types
 typedef enum {
-    STATE_INIT,
-    STATE_AUTH,
-    STATE_ACTIVE
+    CLIENT_UNKNOWN = 0,
+    CLIENT_AI,
+    CLIENT_GUI
+} client_type_t;
+
+// Client states
+typedef enum {
+    STATE_CONNECTING = 0,
+    STATE_CONNECTED,
+    STATE_PLAYING
 } client_state_t;
 
-typedef struct s_client {
-    int             socket_fd;
-    client_state_t  state;
-    int             is_gui;
-    int             team_idx;
-    int             id;
-    buffer_t        buf;
+// Client structure
+typedef struct client_s {
+    int fd;
+    client_type_t type;
+    client_state_t state;
+    
+    // Network buffers
+    char input_buffer[BUFFER_SIZE];
+    size_t input_size;
+    char output_buffer[BUFFER_SIZE];
+    size_t output_size;
+    
+    // Command queue for AI clients
+    struct {
+        char *commands[MAX_COMMANDS];
+        int count;
+        int executing;  // Index of currently executing command
+    } cmd_queue;
+    
+    // Associated player (for AI clients)
+    int player_id;
+    
+    // Team (for AI clients)
+    int team_id;
+    
 } client_t;
 
-client_t *client_create(int socket_fd);
-void      client_destroy(client_t *cl);
+// Client functions
+client_t *client_create(int fd);
+void client_destroy(client_t *client);
+bool client_add_command(client_t *client, const char *command);
+char *client_get_current_command(client_t *client);
+void client_command_done(client_t *client);
+bool client_can_send_command(client_t *client);
 
 #endif /* !CLIENT_H_ */

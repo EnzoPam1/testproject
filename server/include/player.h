@@ -1,19 +1,18 @@
 /*
 ** EPITECH PROJECT, 2025
-** zappy_server
+** Zappy
 ** File description:
-** Player structure and functions
+** Player structure and management
 */
 
-#pragma once
+#ifndef PLAYER_H_
+#define PLAYER_H_
 
-#include <stdint.h>
-#include <time.h>
 #include <stdbool.h>
+#include <time.h>
+#include "resources.h"
 
-#define MAX_INVENTORY 7
-#define LIFE_UNIT_DURATION 126
-
+// Orientations
 typedef enum {
     NORTH = 1,
     EAST = 2,
@@ -21,40 +20,46 @@ typedef enum {
     WEST = 4
 } orientation_t;
 
-typedef enum {
-    RES_FOOD = 0,
-    RES_LINEMATE,
-    RES_DERAUMERE,
-    RES_SIBUR,
-    RES_MENDIANE,
-    RES_PHIRAS,
-    RES_THYSTAME
-} resource_t;
-
-// Forward declarations to avoid recursive includes
-typedef struct s_server server_t;
-typedef struct s_tile tile_t;
-
-typedef struct s_player {
+// Player structure
+typedef struct player_s {
     int id;
-    int client_idx;
-    int team_idx;
+    int client_id;  // Associated client
+    int team_id;
+    
+    // Position and orientation
     int x;
     int y;
     orientation_t orientation;
+    
+    // Stats
     int level;
-    int life_units;
-    bool alive;
-    int inventory[MAX_INVENTORY];
-    int is_incanting;
-    time_t action_end_time;
-    char pending_action[256];
+    int life_units;  // 126 units = 1 food
+    
+    // Inventory
+    int inventory[RESOURCE_COUNT];
+    
+    // State
+    bool is_incanting;
+    bool is_dead;
+    
+    // Current action
+    struct {
+        char *command;
+        time_t end_time;
+        int duration;  // in time units
+    } action;
+    
 } player_t;
 
-player_t *player_create(int client_idx, int team_idx, int x, int y);
+// Player functions
+player_t *player_create(int id, int client_id, int team_id, int x, int y);
 void player_destroy(player_t *player);
-void player_consume_life(player_t *player, server_t *srv);
-void player_turn(player_t *player, int direction);
-void player_move_forward(player_t *player, server_t *srv);
-int player_take_resource(player_t *player, tile_t *tile, resource_t res);
-int player_drop_resource(player_t *player, tile_t *tile, resource_t res);
+void player_move_forward(player_t *player, int map_width, int map_height);
+void player_turn_right(player_t *player);
+void player_turn_left(player_t *player);
+void player_consume_life(player_t *player);
+bool player_is_alive(player_t *player);
+void player_set_action(player_t *player, const char *command, int duration);
+bool player_action_done(player_t *player, int freq);
+
+#endif /* !PLAYER_H_ */

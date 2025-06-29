@@ -1,16 +1,27 @@
-#ifndef ZAPPY_UTILS_H
-#define ZAPPY_UTILS_H
+/*
+** EPITECH PROJECT, 2025
+** Zappy
+** File description:
+** Utilities
+*/
 
-#include <stdio.h>
+#ifndef UTILS_H_
+#define UTILS_H_
 
-/**
- * @brief Affiche un message d’erreur et quitte.
- */
-void die(const char *msg);
+#include <stdarg.h>
 
-/**
- * @brief Trace d’informations (debug).
- */
-void log_info(const char *fmt, ...);
+// String utilities
+char *str_trim(char *str);
+char **str_split(const char *str, char delim);
+void str_array_free(char **array);
+int str_array_len(char **array);
 
-#endif // ZAPPY_UTILS_H
+// Logging
+void log_info(const char *format, ...);
+void log_error(const char *format, ...);
+void log_debug(const char *format, ...);
+
+// Error handling
+void die(const char *format, ...);
+
+#endif /* !UTILS_H_ */
