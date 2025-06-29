@@ -1,0 +1,17 @@
+*.log
+*.o
+*.out
+*.tmp
+.vscode/
+.DS_Store
+__pycache__
+build/
+vgcore.*
+zappy_gui
+zappy_server
+zappy_server_sujet
+zappy_ai_sujet
+test.py
+assets
+zappy_gui2
+shell.nix
