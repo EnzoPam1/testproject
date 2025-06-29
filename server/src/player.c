@@ -12,7 +12,6 @@
 #include "server.h"
 #include "game.h"
 #include "utils.h"
-#include "actions.h"
 
 player_t *player_create(int client_idx, int team_idx, int x, int y)
 {
@@ -58,13 +57,6 @@ void player_consume_life(player_t *player, server_t *srv)
             player->life_units += LIFE_UNIT_DURATION;
             log_info("Player #%d consumes 1 food, %d left",
                 player->id, player->inventory[RES_FOOD]);
-                
-            // Notify GUI of inventory change - FIXED FORMAT
-            char msg[256];
-            snprintf(msg, sizeof(msg), "pin #%d %d %d %d %d %d %d %d %d %d\n",
-                player->id, player->x, player->y, player->inventory[0], player->inventory[1], 
-                player->inventory[2], player->inventory[3], player->inventory[4], player->inventory[5], player->inventory[6]);
-            broadcast_to_gui(srv, msg);
         } else {
             player->life_units = 0;
             log_info("Player #%d dies of starvation", player->id);
