@@ -140,168 +140,23 @@ static player_t *find_player_by_client(server_t *srv, client_t *cl) {
     return NULL;
 }
 
+// COMMANDES AI
+
 static void cmd_forward(server_t *srv, client_t *cl, player_t *player) {
-    player_move_forward(player, srv);
-    send_response(cl->socket_fd, "ok\n");
-    log_info("Forward executed instantly for player %d", player->id);
-    
-    char msg[256];
-    snprintf(msg, sizeof(msg), "ppo #%d %d %d %d\n",
-        player->id, player->x, player->y, player->orientation);
-    broadcast_to_gui(srv, msg);
+    // Pas de vérification pending_action - on peut avoir plusieurs actions en file
+    start_action(player, "forward_end", 7);
+    log_info("Forward scheduled for player %d (7/f seconds)", player->id);
+    // PAS de réponse immédiate - elle viendra quand l'action sera exécutée
 }
 
 static void cmd_right(server_t *srv, client_t *cl, player_t *player) {
-    player_turn(player, 1);
-    send_response(cl->socket_fd, "ok\n");
-    log_info("Right executed instantly for player %d", player->id);
-    
-    char msg[256];
-    snprintf(msg, sizeof(msg), "ppo #%d %d %d %d\n",
-        player->id, player->x, player->y, player->orientation);
-    broadcast_to_gui(srv, msg);
+    start_action(player, "right_end", 7);
+    log_info("Right scheduled for player %d (7/f seconds)", player->id);
 }
 
 static void cmd_left(server_t *srv, client_t *cl, player_t *player) {
-    player_turn(player, -1);
-    send_response(cl->socket_fd, "ok\n");
-    log_info("Left executed instantly for player %d", player->id);
-    
-    char msg[256];
-    snprintf(msg, sizeof(msg), "ppo #%d %d %d %d\n",
-        player->id, player->x, player->y, player->orientation);
-    broadcast_to_gui(srv, msg);
-}
-
-static void cmd_take(server_t *srv, client_t *cl, player_t *player, const char *object) {
-    resource_t res = resource_from_name(object);
-    if (res < 0) { 
-        send_response(cl->socket_fd, "ko\n"); 
-        return; 
-    }
-    
-    tile_t *tile = &srv->map[player->y][player->x];
-    if (player_take_resource(player, tile, res)) {
-        send_response(cl->socket_fd, "ok\n");
-        log_info("Take %s executed instantly for player %d", object, player->id);
-        
-        char msg[256];
-        snprintf(msg, sizeof(msg), "pgt #%d %d\n", player->id, res);
-        broadcast_to_gui(srv, msg);
-        
-        snprintf(msg, sizeof(msg), "bct %d %d %d %d %d %d %d %d %d\n",
-            player->x, player->y, tile->food, tile->stones[0], tile->stones[1],
-            tile->stones[2], tile->stones[3], tile->stones[4], tile->stones[5]);
-        broadcast_to_gui(srv, msg);
-    } else {
-        send_response(cl->socket_fd, "ko\n");
-        log_info("Take %s failed for player %d", object, player->id);
-    }
-}
-
-static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *object) {
-    resource_t res = resource_from_name(object);
-    if (res < 0) { 
-        send_response(cl->socket_fd, "ko\n"); 
-        return; 
-    }
-    
-    tile_t *tile = &srv->map[player->y][player->x];
-    if (player_drop_resource(player, tile, res)) {
-        send_response(cl->socket_fd, "ok\n");
-        log_info("Set %s executed instantly for player %d", object, player->id);
-        
-        char msg[256];
-        snprintf(msg, sizeof(msg), "pdr #%d %d\n", player->id, res);
-        broadcast_to_gui(srv, msg);
-        
-        snprintf(msg, sizeof(msg), "bct %d %d %d %d %d %d %d %d %d\n",
-            player->x, player->y, tile->food, tile->stones[0], tile->stones[1],
-            tile->stones[2], tile->stones[3], tile->stones[4], tile->stones[5]);
-        broadcast_to_gui(srv, msg);
-    } else {
-        send_response(cl->socket_fd, "ko\n");
-        log_info("Set %s failed for player %d", object, player->id);
-    }
-}
-
-static void cmd_broadcast(server_t *srv, client_t *cl, player_t *player, const char *message) {
-    // Broadcast immédiat
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i] == player)
-            continue;
-
-        int direction = calculate_sound_direction(srv, player, srv->players[i]);
-        client_t *recv_cl = NULL;
-
-        for (int j = 0; j < srv->client_count; j++) {
-            if (srv->clients[j]->id == srv->players[i]->client_idx) {
-                recv_cl = srv->clients[j];
-                break;
-            }
-        }
-
-        if (recv_cl) {
-            sendf(recv_cl->socket_fd, "message %d, %s\n", direction, message);
-        }
-    }
-
-    send_response(cl->socket_fd, "ok\n");
-    log_info("Broadcast executed instantly for player %d: '%.50s...'", player->id, message);
-
-    char msg[512];
-    snprintf(msg, sizeof(msg), "pbc #%d %s\n", player->id, message);
-    broadcast_to_gui(srv, msg);
-}
-
-static void cmd_fork(server_t *srv, client_t *cl, player_t *player) {
-    srv->slots_remaining[player->team_idx]++;
-    send_response(cl->socket_fd, "ok\n");
-    log_info("Fork executed instantly for player %d", player->id);
-
-    char msg[256];
-    snprintf(msg, sizeof(msg), "pfk #%d\n", player->id);
-    broadcast_to_gui(srv, msg);
-
-    static int egg_id = 1;
-    snprintf(msg, sizeof(msg), "enw #%d #%d %d %d\n",
-        egg_id++, player->id, player->x, player->y);
-    broadcast_to_gui(srv, msg);
-}
-
-static void cmd_eject(server_t *srv, client_t *cl, player_t *player) {
-    int ejected = 0;
-
-    for (int i = 0; i < srv->player_count; i++) {
-        if (srv->players[i] != player &&
-            srv->players[i]->x == player->x &&
-            srv->players[i]->y == player->y) {
-
-            player_move_forward(srv->players[i], srv);
-
-            client_t *ejected_cl = NULL;
-            for (int j = 0; j < srv->client_count; j++) {
-                if (srv->clients[j]->id == srv->players[i]->client_idx) {
-                    ejected_cl = srv->clients[j];
-                    break;
-                }
-            }
-
-            if (ejected_cl) {
-                int dir = calculate_sound_direction(srv, player, srv->players[i]);
-                sendf(ejected_cl->socket_fd, "eject: %d\n", dir);
-            }
-
-            char msg[256];
-            snprintf(msg, sizeof(msg), "pex #%d\n", srv->players[i]->id);
-            broadcast_to_gui(srv, msg);
-
-            ejected = 1;
-        }
-    }
-
-    send_response(cl->socket_fd, ejected ? "ok\n" : "ko\n");
-    log_info("Eject executed instantly for player %d: %s", player->id, ejected ? "success" : "failed");
+    start_action(player, "left_end", 7);
+    log_info("Left scheduled for player %d (7/f seconds)", player->id);
 }
 
 // COMMANDES INSTANTANÉES
@@ -328,15 +183,54 @@ static void cmd_connect_nbr(server_t *srv, client_t *cl, player_t *player) {
     log_info("Connect_nbr executed instantly for player %d: %d slots", player->id, srv->slots_remaining[player->team_idx]);
 }
 
-static void cmd_incantation(server_t *srv, client_t *cl, player_t *player) {
-    if (player->pending_action[0] != '\0') {
-        return;
+// COMMANDES ASYNCHRONES
+static void cmd_take(server_t *srv, client_t *cl, player_t *player, const char *object) {
+    resource_t res = resource_from_name(object);
+    if (res < 0) { 
+        send_response(cl->socket_fd, "ko\n"); 
+        return; 
     }
     
+    char action[256];
+    snprintf(action, sizeof(action), "take_end %d", res);
+    start_action(player, action, 7);
+    log_info("Take %s scheduled for player %d (7/f seconds)", object, player->id);
+}
+
+static void cmd_set(server_t *srv, client_t *cl, player_t *player, const char *object) {
+    resource_t res = resource_from_name(object);
+    if (res < 0) { 
+        send_response(cl->socket_fd, "ko\n"); 
+        return; 
+    }
+    
+    char action[256];
+    snprintf(action, sizeof(action), "set_end %d", res);
+    start_action(player, action, 7);
+    log_info("Set %s scheduled for player %d (7/f seconds)", object, player->id);
+}
+
+static void cmd_broadcast(server_t *srv, client_t *cl, player_t *player, const char *message) {
+    char action[512];
+    snprintf(action, sizeof(action), "broadcast_end %s", message);
+    start_action(player, action, 7);
+    log_info("Broadcast scheduled for player %d: '%.50s...' (7/f seconds)", player->id, message);
+}
+
+static void cmd_fork(server_t *srv, client_t *cl, player_t *player) {
+    start_action(player, "fork_end", 42);
+    log_info("Fork scheduled for player %d (42/f seconds)", player->id);
+}
+
+static void cmd_eject(server_t *srv, client_t *cl, player_t *player) {
+    start_action(player, "eject_end", 7);
+    log_info("Eject scheduled for player %d (7/f seconds)", player->id);
+}
+
+static void cmd_incantation(server_t *srv, client_t *cl, player_t *player) {
     if (check_elevation_requirements(srv, player->x, player->y, player->level)) {
-        player->action_end_time = time(NULL) + (300.0 / srv->freq);
+        start_action(player, "incantation_end", 300);
         player->is_incanting = 1;
-        strcpy(player->pending_action, "incantation_end");
         
         send_response(cl->socket_fd, "Elevation underway\n");
         
@@ -367,7 +261,7 @@ static void cmd_incantation(server_t *srv, client_t *cl, player_t *player) {
     }
 }
 
-// COMMANDES GUI
+// COMMANDES GUI (restent inchangées)
 static void cmd_msz(server_t *srv, client_t *cl) {
     sendf(cl->socket_fd, "msz %d %d\n", srv->width, srv->height);
 }
