@@ -10,15 +10,22 @@
 #include <string.h>
 #include <getopt.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <errno.h>
 #include "server.h"
 #include "game.h"
 #include "network.h"
-#include "timer.h"
 #include "client.h"
 #include "player.h"
 #include "utils.h"
 #include "command.h"
 #include "gui_protocol.h"
+
+server_t *g_server = NULL;
 
 static config_t *parse_arguments(int argc, char **argv)
 {
@@ -26,7 +33,8 @@ static config_t *parse_arguments(int argc, char **argv)
     if (!config) return NULL;
 
     int opt;
-    char *names = NULL;
+    char **names = NULL;
+    int name_count = 0;
     config->freq = 100;  // Default frequency
 
     while ((opt = getopt(argc, argv, "p:x:y:n:c:f:")) != -1) {
@@ -34,34 +42,192 @@ static config_t *parse_arguments(int argc, char **argv)
             case 'p': config->port = atoi(optarg); break;
             case 'x': config->width = atoi(optarg); break;
             case 'y': config->height = atoi(optarg); break;
-            case 'n': names = strdup(optarg); break;
+            case 'n': 
+                // Count remaining team names
+                name_count = argc - optind + 1;
+                names = malloc(name_count * sizeof(char*));
+                names[0] = strdup(optarg);
+                for (int i = 1; i < name_count && optind < argc; i++) {
+                    if (argv[optind][0] == '-') break;
+                    names[i] = strdup(argv[optind++]);
+                }
+                config->team_names = names;
+                config->team_count = name_count;
+                break;
             case 'c': config->clients_nb = atoi(optarg); break;
             case 'f': config->freq = atoi(optarg); break;
             default:
                 free(config);
-                free(names);
                 return NULL;
         }
     }
 
-    // Validate and parse team names
-    if (!names || !config->port || !config->width || !config->height || !config->clients_nb) {
-        free(config);
-        free(names);
-        return NULL;
-    }
-
-    config->team_names = str_split(names, ' ');
-    config->team_count = str_array_len(config->team_names);
-    free(names);
-
-    if (config->team_count == 0) {
-        str_array_free(config->team_names);
+    // Validate required parameters
+    if (!config->port || !config->width || !config->height || 
+        !config->clients_nb || !config->team_names || config->team_count == 0) {
+        if (config->team_names) {
+            for (int i = 0; i < config->team_count; i++) {
+                free(config->team_names[i]);
+            }
+            free(config->team_names);
+        }
         free(config);
         return NULL;
     }
 
     return config;
+}
+
+static network_t *network_create(uint16_t port)
+{
+    network_t *net = calloc(1, sizeof(network_t));
+    if (!net) return NULL;
+
+    // Create listen socket
+    net->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (net->listen_fd < 0) {
+        free(net);
+        return NULL;
+    }
+
+    // Allow reuse
+    int opt = 1;
+    setsockopt(net->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    // Bind
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+
+    if (bind(net->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(net->listen_fd);
+        free(net);
+        return NULL;
+    }
+
+    // Listen
+    if (listen(net->listen_fd, 128) < 0) {
+        close(net->listen_fd);
+        free(net);
+        return NULL;
+    }
+
+    // Initialize poll
+    net->poll_capacity = 16;
+    net->poll_fds = calloc(net->poll_capacity, sizeof(struct pollfd));
+    net->poll_fds[0].fd = net->listen_fd;
+    net->poll_fds[0].events = POLLIN;
+    net->poll_count = 1;
+
+    // Initialize clients
+    net->client_capacity = 16;
+    net->clients = calloc(net->client_capacity, sizeof(client_t *));
+
+    return net;
+}
+
+static void network_destroy(network_t *net)
+{
+    if (!net) return;
+
+    // Close all clients
+    for (int i = 0; i < net->client_count; i++) {
+        if (net->clients[i]) {
+            close(net->clients[i]->fd);
+            client_destroy(net->clients[i]);
+        }
+    }
+
+    // Close listen socket
+    close(net->listen_fd);
+
+    // Free memory
+    free(net->poll_fds);
+    free(net->clients);
+    free(net);
+}
+
+static client_t *network_accept_client(server_t *server)
+{
+    network_t *net = server->network;
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+
+    int fd = accept(net->listen_fd, (struct sockaddr *)&addr, &addr_len);
+    if (fd < 0) return NULL;
+
+    // Create client
+    client_t *client = client_create(fd);
+    if (!client) {
+        close(fd);
+        return NULL;
+    }
+
+    // Expand arrays if needed
+    if (net->client_count >= net->client_capacity) {
+        net->client_capacity *= 2;
+        net->clients = realloc(net->clients, net->client_capacity * sizeof(client_t *));
+    }
+
+    if (net->poll_count >= net->poll_capacity) {
+        net->poll_capacity *= 2;
+        net->poll_fds = realloc(net->poll_fds, net->poll_capacity * sizeof(struct pollfd));
+    }
+
+    // Add client
+    net->clients[net->client_count++] = client;
+    net->poll_fds[net->poll_count].fd = fd;
+    net->poll_fds[net->poll_count].events = POLLIN;
+    net->poll_count++;
+
+    // Send welcome message
+    client_send(client, "WELCOME\n");
+
+    return client;
+}
+
+static void network_disconnect_client(server_t *server, client_t *client)
+{
+    network_t *net = server->network;
+    
+    // Find client index
+    int index = -1;
+    for (int i = 0; i < net->client_count; i++) {
+        if (net->clients[i] == client) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index < 0) return;
+
+    // Remove player if AI client
+    if (client->type == CLIENT_AI && client->player_id >= 0) {
+        player_t *player = game_get_player_by_id(server->game, client->player_id);
+        if (player) {
+            gui_notify_player_death(server, client->player_id);
+            game_remove_player(server->game, client->player_id);
+        }
+    }
+
+    // Close and destroy
+    close(client->fd);
+    client_destroy(client);
+
+    // Remove from arrays
+    for (int i = index; i < net->client_count - 1; i++) {
+        net->clients[i] = net->clients[i + 1];
+    }
+    net->client_count--;
+
+    // Remove from poll
+    for (int i = index + 1; i < net->poll_count - 1; i++) {
+        net->poll_fds[i] = net->poll_fds[i + 1];
+    }
+    net->poll_count--;
+
+    log_info("Client disconnected");
 }
 
 server_t *server_create(int argc, char **argv)
@@ -95,16 +261,10 @@ server_t *server_create(int argc, char **argv)
         return NULL;
     }
 
-    // Create timer
-    server->timer = timer_create(server->config->freq);
-    if (!server->timer) {
-        log_error("Failed to create timer");
-        server_destroy(server);
-        return NULL;
-    }
-
     server->running = true;
-    server->start_time = time(NULL);
+    gettimeofday(&server->start_time, NULL);
+    gettimeofday(&server->last_tick, NULL);
+    server->tick_accumulator = 0.0;
 
     log_info("Server created - Port: %d, Map: %dx%d, Teams: %d, Freq: %d",
              server->config->port, server->config->width, server->config->height,
@@ -119,114 +279,50 @@ void server_destroy(server_t *server)
 
     if (server->game) game_destroy(server->game);
     if (server->network) network_destroy(server->network);
-    if (server->timer) timer_destroy(server->timer);
     
     if (server->config) {
-        if (server->config->team_names)
-            str_array_free(server->config->team_names);
+        if (server->config->team_names) {
+            for (int i = 0; i < server->config->team_count; i++) {
+                free(server->config->team_names[i]);
+            }
+            free(server->config->team_names);
+        }
         free(server->config);
     }
 
     free(server);
 }
 
-static void handle_new_connection(server_t *server)
+static double get_time_diff(struct timeval *start, struct timeval *end)
 {
-    client_t *client = network_accept_client(server->network);
-    if (client) {
-        network_send(client, "WELCOME\n");
-        log_info("New client connected (fd=%d)", client->fd);
-    }
-}
-
-static void handle_client_authentication(server_t *server, client_t *client, const char *data)
-{
-    // Check for GUI
-    if (strcmp(data, "GRAPHIC") == 0) {
-        client->type = CLIENT_GUI;
-        client->state = STATE_PLAYING;
-        gui_send_initial_data(server, client);
-        log_info("GUI client authenticated");
-        return;
-    }
-
-    // Check for AI team
-    team_t *team = game_get_team_by_name(server->game, data);
-    if (!team) {
-        network_send(client, "ko\n");
-        network_disconnect_client(server->network, client);
-        return;
-    }
-
-    int slots = team_available_slots(team);
-    if (slots <= 0) {
-        network_send(client, "0\n");
-        network_disconnect_client(server->network, client);
-        return;
-    }
-
-    // Create player
-    player_t *player = game_add_player(server->game, client->fd, data);
-    if (!player) {
-        network_send(client, "ko\n");
-        network_disconnect_client(server->network, client);
-        return;
-    }
-
-    // Setup client
-    client->type = CLIENT_AI;
-    client->state = STATE_PLAYING;
-    client->player_id = player->id;
-    client->team_id = team->id;
-
-    // Send connection response
-    network_send(client, "%d\n%d %d\n", slots - 1, 
-                 server->config->width, server->config->height);
-
-    // Notify GUI
-    gui_notify_player_connect(server, player);
-
-    log_info("Player %d joined team '%s' at (%d,%d)", 
-             player->id, team->name, player->x, player->y);
-}
-
-static void handle_client_command(server_t *server, client_t *client, const char *command)
-{
-    if (client->state == STATE_CONNECTING) {
-        handle_client_authentication(server, client, command);
-    } else if (client->state == STATE_PLAYING) {
-        command_process(server, client, command);
-    }
+    return (end->tv_sec - start->tv_sec) + (end->tv_usec - start->tv_usec) / 1000000.0;
 }
 
 static void process_completed_actions(server_t *server)
 {
-    for (int i = 0; i < server->game->player_count; i++) {
-        player_t *player = server->game->players[i];
+    for (int i = 0; i < server->network->client_count; i++) {
+        client_t *client = server->network->clients[i];
         
-        if (player->action.command && player_action_done(player, server->config->freq)) {
-            // Find client
-            client_t *client = NULL;
-            for (int j = 0; j < server->network->client_count; j++) {
-                if (server->network->clients[j]->fd == player->client_id) {
-                    client = server->network->clients[j];
-                    break;
-                }
-            }
-
-            if (client) {
+        if (client->type == CLIENT_AI && client->current_action.is_active) {
+            if (client_action_done(client, server->config->freq)) {
                 // Action completed, process next command
+                client->current_action.is_active = false;
+                if (client->current_action.command) {
+                    free(client->current_action.command);
+                    client->current_action.command = NULL;
+                }
+                
                 client_command_done(client);
                 
                 // Execute next command if any
                 char *next = client_get_current_command(client);
-                if (next && !player->is_dead) {
-                    command_execute(server, client, player, next);
+                if (next) {
+                    player_t *player = game_get_player_by_id(server->game, client->player_id);
+                    if (player && !player->is_dead) {
+                        command_execute(server, client, player, next);
+                    }
                 }
             }
-
-            free(player->action.command);
-            player->action.command = NULL;
         }
     }
 }
@@ -236,19 +332,21 @@ int server_run(server_t *server)
     log_info("Server running on port %d", server->config->port);
 
     while (server->running) {
-        // Calculate timeout
-        int timeout = timer_get_timeout(server->timer);
+        // Calculate timeout for next tick
+        double tick_duration = 1.0 / server->config->freq;
+        int timeout = (int)(tick_duration * 1000);
         
         // Poll network
-        int activity = network_poll(server->network, timeout);
+        int activity = poll(server->network->poll_fds, server->network->poll_count, timeout);
         if (activity < 0) {
-            log_error("Poll error");
+            if (errno == EINTR) continue;
+            log_error("Poll error: %s", strerror(errno));
             continue;
         }
 
         // Handle new connections
         if (server->network->poll_fds[0].revents & POLLIN) {
-            handle_new_connection(server);
+            network_accept_client(server);
         }
 
         // Handle client data
@@ -259,11 +357,15 @@ int server_run(server_t *server)
             }
         }
 
-        // Update timer
-        timer_update(server->timer);
-
         // Game tick
-        if (timer_should_tick(server->timer)) {
+        struct timeval now;
+        gettimeofday(&now, NULL);
+        double elapsed = get_time_diff(&server->last_tick, &now);
+        server->tick_accumulator += elapsed * server->config->freq;
+        server->last_tick = now;
+
+        if (server->tick_accumulator >= 1.0) {
+            server->tick_accumulator -= 1.0;
             game_tick(server->game, server->config->freq);
             
             // Check victory

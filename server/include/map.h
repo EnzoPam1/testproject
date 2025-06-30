@@ -10,6 +10,10 @@
 
 #include "resources.h"
 
+// Forward declarations
+typedef struct tile_s tile_t;
+typedef struct map_s map_t;
+
 // Tile structure
 typedef struct tile_s {
     int resources[RESOURCE_COUNT];

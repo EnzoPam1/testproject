@@ -36,7 +36,7 @@ static void print_usage(const char *prog)
 
 int main(int argc, char **argv)
 {
-    if (argc < 2 || strcmp(argv[1], "-help") == 0) {
+    if (argc < 2 || strcmp(argv[1], "-help") == 0 || strcmp(argv[1], "help") == 0) {
         print_usage(argv[0]);
         return (argc < 2) ? 84 : 0;
     }
@@ -50,6 +50,7 @@ int main(int argc, char **argv)
     // Setup signal handlers
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
+    signal(SIGPIPE, SIG_IGN);
 
     // Run server
     int ret = server_run(g_server);

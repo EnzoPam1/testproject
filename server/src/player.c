@@ -33,11 +33,6 @@ player_t *player_create(int id, int client_id, int team_id, int x, int y)
 void player_destroy(player_t *player)
 {
     if (!player) return;
-    
-    if (player->action.command) {
-        free(player->action.command);
-    }
-    
     free(player);
 }
 
@@ -85,24 +80,4 @@ void player_consume_life(player_t *player)
 bool player_is_alive(player_t *player)
 {
     return !player->is_dead;
-}
-
-void player_set_action(player_t *player, const char *command, int duration)
-{
-    if (player->action.command) {
-        free(player->action.command);
-    }
-    
-    player->action.command = strdup(command);
-    player->action.duration = duration;
-    player->action.end_time = time(NULL) + duration;  // Simple time tracking
-}
-
-bool player_action_done(player_t *player, int freq)
-{
-    if (!player->action.command) return false;
-    
-    // For now, simple time-based check
-    // In a real implementation, this would be based on game ticks
-    return time(NULL) >= player->action.end_time;
 }

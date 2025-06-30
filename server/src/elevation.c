@@ -10,7 +10,7 @@
 #include "game.h"
 #include "player.h"
 #include "map.h"
-#include "network.h"
+#include "client.h"
 #include "server.h"
 #include "gui_protocol.h"
 
@@ -72,14 +72,13 @@ void elevation_start(game_t *game, player_t *initiator, int x, int y)
         player_t *p = game_get_player_by_id(game, tile->players[i]);
         if (p && p->level == initiator->level && !p->is_incanting) {
             p->is_incanting = true;
-            p->action.duration = DURATION_INCANTATION;
             participants[count++] = p->id;
             
             // Send message to other participants
             if (p->id != initiator->id) {
                 for (int j = 0; j < g_server->network->client_count; j++) {
                     if (g_server->network->clients[j]->player_id == p->id) {
-                        network_send(g_server->network->clients[j], 
+                        client_send(g_server->network->clients[j], 
                                    "Elevation underway\n");
                         break;
                     }
@@ -117,7 +116,7 @@ void elevation_complete(game_t *game, player_t *player)
             // Send result to player
             for (int j = 0; j < g_server->network->client_count; j++) {
                 if (g_server->network->clients[j]->player_id == p->id) {
-                    network_send(g_server->network->clients[j], 
+                    client_send(g_server->network->clients[j], 
                                "Current level: %d\n", p->level);
                     break;
                 }

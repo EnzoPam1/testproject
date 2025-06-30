@@ -9,11 +9,9 @@
 #define ELEVATION_H_
 
 #include <stdbool.h>
-
-// Forward declarations
-typedef struct game_s game_t;
-typedef struct player_s player_t;
-typedef struct tile_s tile_t;
+#include "game.h"
+#include "player.h"
+#include "map.h"
 
 // Elevation requirements
 typedef struct elevation_req_s {

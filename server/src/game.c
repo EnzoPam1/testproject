@@ -175,6 +175,16 @@ player_t *game_get_player_by_id(game_t *game, int player_id)
     return NULL;
 }
 
+player_t *game_get_player_by_client_id(game_t *game, int client_id)
+{
+    for (int i = 0; i < game->player_count; i++) {
+        if (game->players[i]->client_id == client_id) {
+            return game->players[i];
+        }
+    }
+    return NULL;
+}
+
 void game_tick(game_t *game, int freq)
 {
     // Update all players
@@ -195,7 +205,7 @@ void game_tick(game_t *game, int freq)
     
     // Spawn resources every 20 time units
     game->resource_timer++;
-    if (game->resource_timer >= 20 * freq) {
+    if (game->resource_timer >= 20) {
         game->resource_timer = 0;
         game_spawn_resources(game);
         log_info("Resources spawned");

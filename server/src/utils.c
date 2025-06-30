@@ -87,6 +87,7 @@ void log_info(const char *format, ...)
     vprintf(format, args);
     printf("\n");
     va_end(args);
+    fflush(stdout);
 }
 
 void log_error(const char *format, ...)
@@ -97,6 +98,7 @@ void log_error(const char *format, ...)
     vfprintf(stderr, format, args);
     fprintf(stderr, "\n");
     va_end(args);
+    fflush(stderr);
 }
 
 void log_debug(const char *format, ...)
@@ -108,6 +110,9 @@ void log_debug(const char *format, ...)
     vprintf(format, args);
     printf("\n");
     va_end(args);
+    fflush(stdout);
+#else
+    (void)format;
 #endif
 }
 

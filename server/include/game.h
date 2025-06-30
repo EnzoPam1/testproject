@@ -13,6 +13,9 @@
 #include "team.h"
 #include "player.h"
 
+// Forward declarations
+typedef struct game_s game_t;
+
 // Game structure
 typedef struct game_s {
     map_t *map;
@@ -39,6 +42,7 @@ player_t *game_add_player(game_t *game, int client_id, const char *team_name);
 void game_remove_player(game_t *game, int player_id);
 team_t *game_get_team_by_name(game_t *game, const char *name);
 player_t *game_get_player_by_id(game_t *game, int player_id);
+player_t *game_get_player_by_client_id(game_t *game, int client_id);
 void game_tick(game_t *game, int freq);
 bool game_check_victory(game_t *game);
 void game_spawn_resources(game_t *game);

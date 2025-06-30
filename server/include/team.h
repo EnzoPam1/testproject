@@ -8,6 +8,10 @@
 #ifndef TEAM_H_
 #define TEAM_H_
 
+// Forward declarations
+typedef struct egg_s egg_t;
+typedef struct team_s team_t;
+
 // Egg structure
 typedef struct egg_s {
     int id;

@@ -10,7 +10,7 @@
 #include "broadcast.h"
 #include "game.h"
 #include "player.h"
-#include "network.h"
+#include "client.h"
 #include "server.h"
 
 int broadcast_get_direction(player_t *sender, player_t *receiver, 
@@ -54,6 +54,17 @@ int broadcast_get_direction(player_t *sender, player_t *receiver,
     return direction + 1;  // 1-8 instead of 0-7
 }
 
+int broadcast_get_direction_from_orientation(orientation_t orientation)
+{
+    switch (orientation) {
+        case NORTH: return 1;
+        case EAST: return 3;
+        case SOUTH: return 5;
+        case WEST: return 7;
+        default: return 1;
+    }
+}
+
 void broadcast_send_to_all(game_t *game, player_t *sender, const char *message)
 {
     extern server_t *g_server;  // Access global server
@@ -72,7 +83,7 @@ void broadcast_send_to_all(game_t *game, player_t *sender, const char *message)
         // Find receiver's client
         for (int j = 0; j < g_server->network->client_count; j++) {
             if (g_server->network->clients[j]->player_id == receiver->id) {
-                network_send(g_server->network->clients[j], 
+                client_send(g_server->network->clients[j], 
                            "message %d,%s\n", direction, message);
                 break;
             }

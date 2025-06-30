@@ -5,15 +5,16 @@
 ** Command processing
 */
 
-#ifndef COMMANDS_H_
-#define COMMANDS_H_
+#ifndef COMMAND_H_
+#define COMMAND_H_
 
 #include "server.h"
-#include "network.h"
+#include "client.h"
+#include "player.h"
 
 // Command processing
-void process_command(server_t *server, client_t *client, const char *command);
-void process_ai_command(server_t *server, client_t *client, player_t *player, const char *command);
+void command_process(server_t *server, client_t *client, const char *command);
+void command_execute(server_t *server, client_t *client, player_t *player, const char *command);
 void process_gui_command(server_t *server, client_t *client, const char *command);
 
 // AI Commands
@@ -30,4 +31,4 @@ void cmd_take(server_t *server, client_t *client, player_t *player, const char *
 void cmd_set(server_t *server, client_t *client, player_t *player, const char *object);
 void cmd_incantation(server_t *server, client_t *client, player_t *player);
 
-#endif /* !COMMANDS_H_ */
+#endif /* !COMMAND_H_ */
