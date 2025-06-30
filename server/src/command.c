@@ -58,8 +58,7 @@ static void handle_client_authentication(server_t *server, client_t *client, con
     strcpy(client->team_name, data);
 
     // Send connection response according to protocol
-    client_send(client, "%d\n", slots - 1);
-    client_send(client, "%d %d\n", server->config->width, server->config->height);
+    client_send(client, "%d %d %d\n", slots - 1, server->config->width, server->config->height);
 
     // Notify GUI
     gui_notify_player_connect(server, player);

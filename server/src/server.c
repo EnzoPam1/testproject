@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <poll.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -25,8 +26,6 @@
 #include "command.h"
 #include "gui_protocol.h"
 
-server_t *g_server = NULL;
-
 static config_t *parse_arguments(int argc, char **argv)
 {
     config_t *config = calloc(1, sizeof(config_t));
@@ -35,28 +34,77 @@ static config_t *parse_arguments(int argc, char **argv)
     int opt;
     char **names = NULL;
     int name_count = 0;
+    int name_capacity = 0;
     config->freq = 100;  // Default frequency
 
     while ((opt = getopt(argc, argv, "p:x:y:n:c:f:")) != -1) {
         switch (opt) {
-            case 'p': config->port = atoi(optarg); break;
-            case 'x': config->width = atoi(optarg); break;
-            case 'y': config->height = atoi(optarg); break;
+            case 'p': 
+                config->port = atoi(optarg); 
+                break;
+            case 'x': 
+                config->width = atoi(optarg); 
+                break;
+            case 'y': 
+                config->height = atoi(optarg); 
+                break;
             case 'n': 
-                // Count remaining team names
-                name_count = argc - optind + 1;
-                names = malloc(name_count * sizeof(char*));
-                names[0] = strdup(optarg);
-                for (int i = 1; i < name_count && optind < argc; i++) {
-                    if (argv[optind][0] == '-') break;
-                    names[i] = strdup(argv[optind++]);
+                // Initialize names array if not done yet
+                if (!names) {
+                    name_capacity = 8;  // Start with capacity for 8 teams
+                    names = malloc(name_capacity * sizeof(char*));
+                    if (!names) {
+                        free(config);
+                        return NULL;
+                    }
                 }
+                
+                // Add the current team name
+                if (name_count >= name_capacity) {
+                    name_capacity *= 2;
+                    names = realloc(names, name_capacity * sizeof(char*));
+                    if (!names) {
+                        free(config);
+                        return NULL;
+                    }
+                }
+                names[name_count++] = strdup(optarg);
+                
+                // Continue reading team names until we hit another option or end of args
+                while (optind < argc && argv[optind][0] != '-') {
+                    if (name_count >= name_capacity) {
+                        name_capacity *= 2;
+                        names = realloc(names, name_capacity * sizeof(char*));
+                        if (!names) {
+                            // Cleanup on failure
+                            for (int i = 0; i < name_count; i++) {
+                                free(names[i]);
+                            }
+                            free(names);
+                            free(config);
+                            return NULL;
+                        }
+                    }
+                    names[name_count++] = strdup(argv[optind++]);
+                }
+                
                 config->team_names = names;
                 config->team_count = name_count;
                 break;
-            case 'c': config->clients_nb = atoi(optarg); break;
-            case 'f': config->freq = atoi(optarg); break;
+            case 'c': 
+                config->clients_nb = atoi(optarg); 
+                break;
+            case 'f': 
+                config->freq = atoi(optarg); 
+                break;
             default:
+                // Cleanup on error
+                if (names) {
+                    for (int i = 0; i < name_count; i++) {
+                        free(names[i]);
+                    }
+                    free(names);
+                }
                 free(config);
                 return NULL;
         }
@@ -65,6 +113,8 @@ static config_t *parse_arguments(int argc, char **argv)
     // Validate required parameters
     if (!config->port || !config->width || !config->height || 
         !config->clients_nb || !config->team_names || config->team_count == 0) {
+        
+        // Cleanup on validation failure
         if (config->team_names) {
             for (int i = 0; i < config->team_count; i++) {
                 free(config->team_names[i]);
@@ -232,40 +282,74 @@ static void network_disconnect_client(server_t *server, client_t *client)
 
 server_t *server_create(int argc, char **argv)
 {
+    printf("DEBUG: Starting server_create\n");
+    fflush(stdout);
+    
     server_t *server = calloc(1, sizeof(server_t));
-    if (!server) return NULL;
+    if (!server) {
+        printf("ERROR: Failed to allocate server\n");
+        return NULL;
+    }
+    printf("DEBUG: Server allocated\n");
+    fflush(stdout);
 
     // Parse configuration
+    printf("DEBUG: Parsing arguments\n");
+    fflush(stdout);
     server->config = parse_arguments(argc, argv);
     if (!server->config) {
+        printf("ERROR: Invalid arguments\n");
         log_error("Invalid arguments");
         free(server);
         return NULL;
     }
+    printf("DEBUG: Arguments parsed successfully\n");
+    printf("DEBUG: Port: %d, Width: %d, Height: %d, Teams: %d, Clients: %d, Freq: %d\n",
+           server->config->port, server->config->width, server->config->height,
+           server->config->team_count, server->config->clients_nb, server->config->freq);
+    
+    // Print team names
+    printf("DEBUG: Team names: ");
+    for (int i = 0; i < server->config->team_count; i++) {
+        printf("%s ", server->config->team_names[i]);
+    }
+    printf("\n");
+    fflush(stdout);
 
     // Create game
+    printf("DEBUG: Creating game\n");
+    fflush(stdout);
     server->game = game_create(server->config->width, server->config->height,
                                server->config->team_names, server->config->team_count,
                                server->config->clients_nb);
     if (!server->game) {
+        printf("ERROR: Failed to create game\n");
         log_error("Failed to create game");
         server_destroy(server);
         return NULL;
     }
+    printf("DEBUG: Game created successfully\n");
+    fflush(stdout);
 
     // Create network
+    printf("DEBUG: Creating network on port %d\n", server->config->port);
+    fflush(stdout);
     server->network = network_create(server->config->port);
     if (!server->network) {
+        printf("ERROR: Failed to create network on port %d\n", server->config->port);
         log_error("Failed to create network on port %d", server->config->port);
         server_destroy(server);
         return NULL;
     }
+    printf("DEBUG: Network created successfully\n");
+    fflush(stdout);
 
     server->running = true;
     gettimeofday(&server->start_time, NULL);
     gettimeofday(&server->last_tick, NULL);
     server->tick_accumulator = 0.0;
 
+    printf("DEBUG: Server creation completed successfully\n");
     log_info("Server created - Port: %d, Map: %dx%d, Teams: %d, Freq: %d",
              server->config->port, server->config->width, server->config->height,
              server->config->team_count, server->config->freq);

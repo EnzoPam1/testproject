@@ -7,31 +7,81 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "map.h"
 
 map_t *map_create(int width, int height)
 {
+    printf("DEBUG: Creating map %dx%d\n", width, height);
+    fflush(stdout);
+    
+    // Validate parameters
+    if (width <= 0 || height <= 0 || width > 1000 || height > 1000) {
+        printf("ERROR: Invalid map dimensions: %dx%d\n", width, height);
+        return NULL;
+    }
+    
     map_t *map = calloc(1, sizeof(map_t));
-    if (!map) return NULL;
+    if (!map) {
+        printf("ERROR: Failed to allocate map structure\n");
+        return NULL;
+    }
 
     map->width = width;
     map->height = height;
     
+    printf("DEBUG: Allocating tiles array for %d rows\n", height);
+    fflush(stdout);
+    
     // Allocate tiles
     map->tiles = calloc(height, sizeof(tile_t *));
     if (!map->tiles) {
+        printf("ERROR: Failed to allocate tiles array\n");
         free(map);
         return NULL;
     }
     
+    printf("DEBUG: Allocating individual tile rows\n");
+    fflush(stdout);
+    
     for (int y = 0; y < height; y++) {
         map->tiles[y] = calloc(width, sizeof(tile_t));
         if (!map->tiles[y]) {
-            map_destroy(map);
+            printf("ERROR: Failed to allocate tile row %d\n", y);
+            // Cleanup already allocated rows
+            for (int i = 0; i < y; i++) {
+                if (map->tiles[i]) {
+                    for (int x = 0; x < width; x++) {
+                        tile_t *tile = &map->tiles[i][x];
+                        if (tile->players) free(tile->players);
+                        if (tile->eggs) free(tile->eggs);
+                    }
+                    free(map->tiles[i]);
+                }
+            }
+            free(map->tiles);
+            free(map);
             return NULL;
+        }
+        
+        // Initialize tiles in this row
+        for (int x = 0; x < width; x++) {
+            tile_t *tile = &map->tiles[y][x];
+            // Initialize all resources to 0 (calloc already does this)
+            tile->players = NULL;
+            tile->player_count = 0;
+            tile->eggs = NULL;
+            tile->egg_count = 0;
+        }
+        
+        if ((y + 1) % 100 == 0) {
+            printf("DEBUG: Allocated %d/%d rows\n", y + 1, height);
+            fflush(stdout);
         }
     }
     
+    printf("DEBUG: Map creation completed successfully\n");
+    fflush(stdout);
     return map;
 }
 

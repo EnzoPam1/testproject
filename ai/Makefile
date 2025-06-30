@@ -7,7 +7,7 @@
 
 NAME = zappy_ai
 PYTHON = python3
-SRC_DIR = src
+SRC_DIR = ai/src
 MAIN_FILE = $(SRC_DIR)/main.py
 
 all: $(NAME)

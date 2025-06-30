@@ -8,53 +8,112 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdio.h>
 #include "game.h"
 #include "utils.h"
 #include "resources.h"
 
 game_t *game_create(int width, int height, char **team_names, int team_count, int clients_nb)
 {
+    printf("DEBUG: Starting game_create with %dx%d map, %d teams, %d clients per team\n", 
+           width, height, team_count, clients_nb);
+    fflush(stdout);
+    
+    // Validate parameters
+    if (width <= 0 || height <= 0 || team_count <= 0 || clients_nb <= 0 || !team_names) {
+        printf("ERROR: Invalid game parameters\n");
+        return NULL;
+    }
+    
     game_t *game = calloc(1, sizeof(game_t));
-    if (!game) return NULL;
+    if (!game) {
+        printf("ERROR: Failed to allocate game\n");
+        return NULL;
+    }
+    printf("DEBUG: Game structure allocated\n");
+    fflush(stdout);
 
     // Create map
+    printf("DEBUG: Creating map %dx%d\n", width, height);
+    fflush(stdout);
     game->map = map_create(width, height);
     if (!game->map) {
+        printf("ERROR: Failed to create map\n");
         free(game);
         return NULL;
     }
+    printf("DEBUG: Map created successfully\n");
+    fflush(stdout);
 
     // Create teams
+    printf("DEBUG: Creating %d teams\n", team_count);
+    fflush(stdout);
     game->teams = calloc(team_count, sizeof(team_t *));
+    if (!game->teams) {
+        printf("ERROR: Failed to allocate teams array\n");
+        map_destroy(game->map);
+        free(game);
+        return NULL;
+    }
     game->team_count = team_count;
     
     for (int i = 0; i < team_count; i++) {
+        printf("DEBUG: Creating team %d: %s\n", i, team_names[i]);
+        fflush(stdout);
         game->teams[i] = team_create(i, team_names[i], clients_nb);
+        if (!game->teams[i]) {
+            printf("ERROR: Failed to create team %d\n", i);
+            // Cleanup already created teams
+            for (int j = 0; j < i; j++) {
+                team_destroy(game->teams[j]);
+            }
+            free(game->teams);
+            map_destroy(game->map);
+            free(game);
+            return NULL;
+        }
         
         // Create initial eggs
+        printf("DEBUG: Creating %d initial eggs for team %s\n", clients_nb, team_names[i]);
+        fflush(stdout);
         for (int j = 0; j < clients_nb; j++) {
             int x = rand() % width;
             int y = rand() % height;
             egg_t *egg = team_add_egg(game->teams[i], game->next_egg_id++, x, y);
             if (egg) {
                 map_add_egg(game->map, x, y, egg->id);
+                printf("DEBUG: Egg %d created at (%d,%d) for team %s\n", 
+                       egg->id, x, y, team_names[i]);
+            } else {
+                printf("WARNING: Failed to create egg for team %s\n", team_names[i]);
             }
         }
     }
+    printf("DEBUG: All teams created successfully\n");
+    fflush(stdout);
 
     // Initialize players array
     game->player_capacity = 16;
     game->players = calloc(game->player_capacity, sizeof(player_t *));
+    if (!game->players) {
+        printf("ERROR: Failed to allocate players array\n");
+        game_destroy(game);
+        return NULL;
+    }
     
     // Initialize IDs
     game->next_player_id = 1;
     game->next_egg_id = team_count * clients_nb + 1;
     
     // Spawn initial resources
+    printf("DEBUG: Spawning initial resources\n");
+    fflush(stdout);
     game_spawn_resources(game);
 
     srand(time(NULL));
     
+    printf("DEBUG: Game creation completed successfully\n");
+    fflush(stdout);
     return game;
 }
 

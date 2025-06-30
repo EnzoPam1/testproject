@@ -16,9 +16,8 @@ zappy_gui:
 	cp gui/zappy_gui .
 
 zappy_ai:
-	cp ai/src/*.py .
-	cp ai/src/main.py zappy_ai
-	chmod +x zappy_ai
+	$(MAKE) -C ai
+	cp ai/zappy_ai .
 
 clean:
 	$(MAKE) -C server clean
